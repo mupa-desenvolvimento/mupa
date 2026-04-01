@@ -403,25 +403,76 @@ export default function TerminalPage() {
         )}
       </AnimatePresence>
 
-      {/* Idle state */}
+      {/* Idle state — media slideshow or fallback */}
       <AnimatePresence>
-        {!produto && !loading && !error && (
-          <motion.div
-            className="terminal-idle"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.4 }}
-          >
-            <motion.div
-              animate={{ y: [0, -8, 0] }}
-              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-            >
-              <Barcode className="w-24 h-24 text-white/15 mb-6" />
-            </motion.div>
-            <p className="text-white/40 text-2xl font-bold">Consulte um produto</p>
-            <p className="text-white/25 text-lg mt-2">Escaneie ou digite o código de barras</p>
-          </motion.div>
+        {isIdle && (
+          <>
+            {mediaList.length > 0 ? (
+              <motion.div
+                className="terminal-media-slideshow"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <AnimatePresence mode="wait">
+                  {mediaList[currentMediaIndex] && (
+                    <motion.div
+                      key={mediaList[currentMediaIndex].id}
+                      className="terminal-media-item"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.6 }}
+                    >
+                      {mediaList[currentMediaIndex].tipo === "imagem" ? (
+                        <img
+                          src={mediaList[currentMediaIndex].url}
+                          alt=""
+                          className="terminal-media-content"
+                        />
+                      ) : (
+                        <video
+                          src={mediaList[currentMediaIndex].url}
+                          className="terminal-media-content"
+                          autoPlay
+                          muted
+                          playsInline
+                          onEnded={() =>
+                            setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length)
+                          }
+                        />
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Search bar overlay on media */}
+                <div className="terminal-media-search-overlay">
+                  <p className="text-white/60 text-lg font-semibold">
+                    Escaneie ou digite o código de barras
+                  </p>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                className="terminal-idle"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ duration: 0.4 }}
+              >
+                <motion.div
+                  animate={{ y: [0, -8, 0] }}
+                  transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  <Barcode className="w-24 h-24 text-white/15 mb-6" />
+                </motion.div>
+                <p className="text-white/40 text-2xl font-bold">Consulte um produto</p>
+                <p className="text-white/25 text-lg mt-2">Escaneie ou digite o código de barras</p>
+              </motion.div>
+            )}
+          </>
         )}
       </AnimatePresence>
     </div>
