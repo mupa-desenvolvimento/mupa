@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Barcode } from "lucide-react";
+import { Barcode } from "lucide-react";
 
 interface Produto {
   ean: string;
@@ -45,9 +45,35 @@ export default function TerminalPage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
+  const [tipoSugestao, setTipoSugestao] = useState<string>("complementares");
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Wake Lock — prevent screen sleep on Android
+  useEffect(() => {
+    let wakeLock: WakeLockSentinel | null = null;
+
+    const requestWakeLock = async () => {
+      try {
+        if ("wakeLock" in navigator) {
+          wakeLock = await navigator.wakeLock.request("screen");
+        }
+      } catch {}
+    };
+
+    requestWakeLock();
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") requestWakeLock();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      wakeLock?.release();
+    };
+  }, []);
 
   // Auto-fullscreen on mount & track fullscreen state
   useEffect(() => {
@@ -61,18 +87,27 @@ export default function TerminalPage() {
         }
       } catch {}
     };
-
-    // Try auto-enter; browsers may block without user gesture
     enterFs();
 
-    const onFsChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", onFsChange);
     return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
-  // Reset to idle after 30s of inactivity when a product is shown
+  // Fetch terminal config (tipo_sugestao)
+  useEffect(() => {
+    const fetchConfig = async () => {
+      const { data } = await supabase
+        .from("terminal_config")
+        .select("valor")
+        .eq("chave", "tipo_sugestao")
+        .maybeSingle();
+      if (data?.valor) setTipoSugestao(data.valor);
+    };
+    fetchConfig();
+  }, []);
+
+  // Reset to idle after 30s of inactivity
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     idleTimerRef.current = setTimeout(() => {
@@ -89,7 +124,6 @@ export default function TerminalPage() {
     return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
   }, [produto, resetIdleTimer]);
 
-  // Reset idle timer on any interaction
   useEffect(() => {
     const handler = () => { if (produto) resetIdleTimer(); };
     window.addEventListener("pointerdown", handler);
@@ -113,12 +147,12 @@ export default function TerminalPage() {
     fetchMedia();
   }, []);
 
-  // Slideshow timer — advances media when idle
+  // Slideshow timer
   const isIdle = !produto && !loading && !error;
   useEffect(() => {
     if (!isIdle || mediaList.length <= 1) return;
     const current = mediaList[currentMediaIndex];
-    if (!current || current.tipo === "video") return; // videos advance on ended
+    if (!current || current.tipo === "video") return;
 
     const timer = setTimeout(() => {
       setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length);
@@ -126,6 +160,18 @@ export default function TerminalPage() {
 
     return () => clearTimeout(timer);
   }, [isIdle, currentMediaIndex, mediaList]);
+
+  // Keep focus on hidden input for barcode scanner
+  useEffect(() => {
+    const keepFocus = () => {
+      if (inputRef.current && document.activeElement !== inputRef.current) {
+        inputRef.current.focus();
+      }
+    };
+    const interval = setInterval(keepFocus, 500);
+    keepFocus();
+    return () => clearInterval(interval);
+  }, []);
 
   const toggleFullscreen = async () => {
     try {
@@ -147,7 +193,6 @@ export default function TerminalPage() {
     setSugestoes(null);
 
     try {
-      // Fetch product
       const prodRes = await fetch(`${BASE_URL}/api-produtos?ean=${searchEan}`);
       if (!prodRes.ok) {
         setError("Produto não encontrado");
@@ -155,11 +200,9 @@ export default function TerminalPage() {
         return;
       }
       const prodData = await prodRes.json();
-      const prod = prodData.produto;
-      setProduto(prod);
+      setProduto(prodData.produto);
 
-      // Fetch suggestions in parallel
-      fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=4`)
+      fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=3`)
         .then(r => r.json())
         .then(d => setSugestoes(d.sugestoes))
         .catch(() => {});
@@ -182,12 +225,41 @@ export default function TerminalPage() {
 
   const hasDiscount = produto?.preco_lista && produto?.preco && produto.preco_lista > produto.preco;
 
-  const allSugestoes = sugestoes
-    ? [...sugestoes.complementares, ...sugestoes.mesma_marca, ...sugestoes.perfil].slice(0, 6)
-    : [];
+  // Get suggestions based on configured type, limited to 3
+  const getSugestoes = (): Sugestao[] => {
+    if (!sugestoes) return [];
+    const map: Record<string, Sugestao[]> = {
+      mesma_marca: sugestoes.mesma_marca,
+      complementares: sugestoes.complementares,
+      perfil: sugestoes.perfil,
+      todas: [...sugestoes.complementares, ...sugestoes.mesma_marca, ...sugestoes.perfil],
+    };
+    return (map[tipoSugestao] || map.todas).slice(0, 3);
+  };
+
+  const allSugestoes = getSugestoes();
 
   return (
     <div ref={containerRef} className="terminal-page" style={{ cursor: "none" }}>
+      {/* Hidden input for barcode scanner — no keyboard */}
+      <input
+        ref={inputRef}
+        type="text"
+        inputMode="none"
+        value={ean}
+        onChange={(e) => setEan(e.target.value)}
+        onKeyDown={handleKeyDown}
+        autoFocus
+        style={{
+          position: "absolute",
+          opacity: 0,
+          width: 0,
+          height: 0,
+          overflow: "hidden",
+          pointerEvents: "none",
+        }}
+      />
+
       {/* Fullscreen toggle */}
       <button
         onClick={toggleFullscreen}
@@ -206,24 +278,6 @@ export default function TerminalPage() {
       <div className="terminal-blob terminal-blob-1" />
       <div className="terminal-blob terminal-blob-2" />
       <div className="terminal-blob terminal-blob-3" />
-
-      {/* Search bar */}
-      <div className="terminal-search">
-        <Barcode className="w-5 h-5 text-white/60" />
-        <input
-          ref={inputRef}
-          type="text"
-          value={ean}
-          onChange={(e) => setEan(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Leia o código de barras ou digite o EAN..."
-          className="terminal-input"
-          autoFocus
-        />
-        <button onClick={() => consultar()} className="terminal-search-btn">
-          <Search className="w-5 h-5" />
-        </button>
-      </div>
 
       {/* Loading */}
       <AnimatePresence>
@@ -255,7 +309,7 @@ export default function TerminalPage() {
         )}
       </AnimatePresence>
 
-      {/* Product display */}
+      {/* Product display — IMAGE FIRST (top), then info, then suggestions */}
       <AnimatePresence mode="wait">
         {produto && !loading && (
           <motion.div
@@ -266,91 +320,86 @@ export default function TerminalPage() {
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.3 }}
           >
-            {/* Main content: splits horizontally in landscape */}
-            <div className="terminal-product-main">
-              {/* Left side: name + price */}
-              <div className="terminal-product-left">
-                <motion.div
-                  className="terminal-name-banner"
-                  initial={{ x: -80, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  transition={{ duration: 0.4, ease: "easeOut" }}
-                >
-                  <h1 className="terminal-product-name">
-                    {produto.nome_curto || produto.nome}
-                  </h1>
-                  {produto.marca && (
-                    <p className="terminal-product-brand">{produto.marca}</p>
-                  )}
-                </motion.div>
+            {/* Image on top — large */}
+            <motion.div
+              className="terminal-product-image-top"
+              initial={{ scale: 0.5, opacity: 0, y: 40 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1, type: "spring", stiffness: 200, damping: 20 }}
+            >
+              {produto.imagem_url_vtex ? (
+                <img
+                  src={produto.imagem_url_vtex}
+                  alt={produto.nome}
+                  className="terminal-product-image-large"
+                />
+              ) : (
+                <div className="terminal-no-image-large">
+                  <Barcode className="w-20 h-20 text-white/30" />
+                </div>
+              )}
+            </motion.div>
 
-                <motion.div
-                  className="terminal-price-area"
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.4, delay: 0.35 }}
+            {/* Name + brand */}
+            <motion.div
+              className="terminal-name-banner"
+              initial={{ x: -80, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ duration: 0.4, delay: 0.25, ease: "easeOut" }}
+            >
+              <h1 className="terminal-product-name">
+                {produto.nome_curto || produto.nome}
+              </h1>
+              {produto.marca && (
+                <p className="terminal-product-brand">{produto.marca}</p>
+              )}
+            </motion.div>
+
+            {/* Price */}
+            <motion.div
+              className="terminal-price-area"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.35 }}
+            >
+              {hasDiscount && (
+                <p className="terminal-old-price">
+                  De R$ {produto.preco_lista!.toFixed(2)}
+                </p>
+              )}
+              <div className="terminal-price">
+                <span className="terminal-price-symbol">R$</span>
+                <motion.span
+                  className="terminal-price-reais"
+                  initial={{ scale: 0.6, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.4, delay: 0.45, type: "spring", stiffness: 300 }}
                 >
-                  {hasDiscount && (
-                    <p className="terminal-old-price">
-                      De R$ {produto.preco_lista!.toFixed(2)}
-                    </p>
-                  )}
-                  <div className="terminal-price">
-                    <span className="terminal-price-symbol">R$</span>
-                    <motion.span
-                      className="terminal-price-reais"
-                      initial={{ scale: 0.6, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ duration: 0.4, delay: 0.45, type: "spring", stiffness: 300 }}
-                    >
-                      {formatPrice(produto.preco ?? 0).reais}
-                    </motion.span>
-                    <span className="terminal-price-centavos">
-                      ,{formatPrice(produto.preco ?? 0).centavos}
-                    </span>
-                  </div>
-                  {produto.unidade_medida && (
-                    <p className="terminal-unit">{produto.unidade_medida}</p>
-                  )}
-                  {hasDiscount && (
-                    <motion.div
-                      className="terminal-volume-price"
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.55 }}
-                    >
-                      <span className="terminal-volume-label">A partir de 3 Un:</span>
-                      <span className="terminal-volume-badge">
-                        R$ {produto.preco!.toFixed(2)}
-                      </span>
-                    </motion.div>
-                  )}
-                </motion.div>
+                  {formatPrice(produto.preco ?? 0).reais}
+                </motion.span>
+                <span className="terminal-price-centavos">
+                  ,{formatPrice(produto.preco ?? 0).centavos}
+                </span>
               </div>
+              {produto.unidade_medida && (
+                <p className="terminal-unit">{produto.unidade_medida}</p>
+              )}
+              {hasDiscount && (
+                <motion.div
+                  className="terminal-volume-price"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.55 }}
+                >
+                  <span className="terminal-volume-label">A partir de 3 Un:</span>
+                  <span className="terminal-volume-badge">
+                    R$ {produto.preco!.toFixed(2)}
+                  </span>
+                </motion.div>
+              )}
+            </motion.div>
 
-              {/* Right side: image + pedestal */}
-              <motion.div
-                className="terminal-product-right"
-                initial={{ scale: 0.5, opacity: 0, y: 40 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.15, type: "spring", stiffness: 200, damping: 20 }}
-              >
-                {produto.imagem_url_vtex ? (
-                  <img
-                    src={produto.imagem_url_vtex}
-                    alt={produto.nome}
-                    className="terminal-product-image"
-                  />
-                ) : (
-                  <div className="terminal-no-image">
-                    <Barcode className="w-16 h-16 text-white/30" />
-                  </div>
-                )}
-                <div className="terminal-pedestal" />
-              </motion.div>
-            </div>
-
-            {/* Suggestions */}
+            {/* Suggestions — max 3 */}
             {allSugestoes.length > 0 && (
               <motion.div
                 className="terminal-suggestions"
@@ -446,13 +495,6 @@ export default function TerminalPage() {
                     </motion.div>
                   )}
                 </AnimatePresence>
-
-                {/* Search bar overlay on media */}
-                <div className="terminal-media-search-overlay">
-                  <p className="text-white/60 text-lg font-semibold">
-                    Escaneie ou digite o código de barras
-                  </p>
-                </div>
               </motion.div>
             ) : (
               <motion.div
@@ -469,7 +511,7 @@ export default function TerminalPage() {
                   <Barcode className="w-24 h-24 text-white/15 mb-6" />
                 </motion.div>
                 <p className="text-white/40 text-2xl font-bold">Consulte um produto</p>
-                <p className="text-white/25 text-lg mt-2">Escaneie ou digite o código de barras</p>
+                <p className="text-white/25 text-lg mt-2">Escaneie o código de barras</p>
               </motion.div>
             )}
           </>
