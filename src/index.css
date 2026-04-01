@@ -366,6 +366,24 @@
     @apply relative z-10 flex flex-col items-center justify-center flex-1 mt-20;
   }
 
+  /* Media slideshow */
+  .terminal-media-slideshow {
+    @apply absolute inset-0 z-0 flex items-center justify-center;
+  }
+
+  .terminal-media-item {
+    @apply absolute inset-0 flex items-center justify-center;
+  }
+
+  .terminal-media-content {
+    @apply w-full h-full object-contain;
+  }
+
+  .terminal-media-search-overlay {
+    @apply absolute bottom-8 left-0 right-0 z-10 text-center;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+  }
+
   /* ===== LANDSCAPE MODE (width > height) ===== */
   @media (orientation: landscape) and (min-width: 640px) {
     .terminal-product-area {
