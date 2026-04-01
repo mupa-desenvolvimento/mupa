@@ -509,7 +509,6 @@ export default function TerminalMediaPage() {
                 Resetar para Padrão
               </Button>
             </div>
-            </div>
 
             <div className="space-y-1">
               <div className="flex items-center justify-between">
