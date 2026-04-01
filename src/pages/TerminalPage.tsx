@@ -873,20 +873,36 @@ export default function TerminalPage() {
                 {/* Suggestions inside the main container */}
                 {allSugestoes.length > 0 && (
                   <motion.div className="terminal-suggestions" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.6 }}>
-                    <h2 className="terminal-suggestions-title" style={{ color: t.containerTextMuted }}>💡 Você também pode gostar</h2>
+                    <motion.h2
+                      className="terminal-suggestions-title"
+                      style={{
+                        color: t.containerTextColor,
+                        background: `linear-gradient(90deg, ${t.priceContainerBg}22, ${t.priceContainerBg}44, ${t.priceContainerBg}22)`,
+                        borderColor: `${t.priceContainerBg}33`,
+                      }}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.55, duration: 0.4, type: "spring" }}
+                    >
+                      {tipoSugestao === "mesma_marca" ? "🏷️ Mais dessa marca!" :
+                       tipoSugestao === "perfil" ? "⭐ Recomendados pra você!" :
+                       "✨ Combina perfeitamente!"}
+                    </motion.h2>
                     <div className="terminal-suggestions-grid">
                       {allSugestoes.map((s, i) => (
                         <motion.button
                           key={s.ean}
                           className="terminal-suggestion-card"
                           style={{
-                            background: "rgba(255,255,255,0.5)",
-                            borderColor: "rgba(255,255,255,0.7)",
-                            transition: "background 0.8s ease, border-color 0.8s ease",
+                            background: "rgba(255,255,255,0.75)",
+                            borderColor: `${t.priceContainerBg}30`,
+                            boxShadow: `0 4px 15px ${t.priceContainerBg}15`,
+                            transition: "background 0.8s ease, border-color 0.8s ease, box-shadow 0.3s ease",
                           }}
-                          initial={{ opacity: 0, y: 15 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.3, delay: 0.7 + i * 0.08 }}
+                          initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          transition={{ duration: 0.35, delay: 0.7 + i * 0.1, type: "spring", stiffness: 200 }}
+                          whileHover={{ scale: 1.05, y: -4 }}
                           whileTap={{ scale: 0.95 }}
                           onClick={() => { setEan(s.ean); consultar(s.ean); }}
                         >
@@ -895,8 +911,15 @@ export default function TerminalPage() {
                           ) : (
                             <div className="terminal-suggestion-noimg"><Barcode className="w-6 h-6 text-black/15" /></div>
                           )}
-                          <p className="terminal-suggestion-name" style={{ color: t.containerTextMuted }}>{s.nome_curto || s.nome}</p>
-                          {s.preco && <p className="terminal-suggestion-price" style={{ color: t.containerTextColor }}>R$ {s.preco.toFixed(2)}</p>}
+                          <p className="terminal-suggestion-name" style={{ color: t.containerTextColor }}>{s.nome_curto || s.nome}</p>
+                          {s.preco && (
+                            <p className="terminal-suggestion-price" style={{
+                              color: t.priceTextColor,
+                              background: t.priceContainerGradient,
+                            }}>
+                              R$ {s.preco.toFixed(2)}
+                            </p>
+                          )}
                         </motion.button>
                       ))}
                     </div>

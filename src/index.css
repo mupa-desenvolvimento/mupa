@@ -373,40 +373,41 @@
   }
 
   .terminal-suggestions-title {
-    @apply text-base font-semibold uppercase tracking-wider mb-3 text-center;
-    color: rgba(0,0,0,0.4);
+    @apply text-lg font-bold uppercase tracking-wider mb-4 text-center py-2 px-4 rounded-xl;
+    border: 1px solid rgba(0,0,0,0.08);
+    letter-spacing: 0.08em;
   }
 
   .terminal-suggestions-grid {
-    @apply grid grid-cols-3 gap-3;
+    @apply grid grid-cols-3 gap-4;
   }
 
   .terminal-suggestion-card {
-    @apply flex flex-col items-center p-3 rounded-2xl transition-all text-center;
-    background: rgba(0,0,0,0.03);
-    border: 1px solid rgba(0,0,0,0.06);
+    @apply flex flex-col items-center p-4 rounded-2xl transition-all text-center;
+    background: rgba(255,255,255,0.7);
+    border: 2px solid rgba(0,0,0,0.06);
+    backdrop-filter: blur(8px);
   }
   .terminal-suggestion-card:hover {
-    background: rgba(0,0,0,0.06);
-    transform: translateY(-2px);
+    background: rgba(255,255,255,0.9);
   }
 
   .terminal-suggestion-img {
-    @apply w-20 h-20 object-contain mb-2;
+    @apply w-24 h-24 object-contain mb-3;
+    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.1));
   }
 
   .terminal-suggestion-noimg {
-    @apply w-20 h-20 flex items-center justify-center;
+    @apply w-24 h-24 flex items-center justify-center;
   }
 
   .terminal-suggestion-name {
-    @apply text-xs leading-tight line-clamp-2;
-    color: rgba(0,0,0,0.55);
+    @apply text-sm font-medium leading-tight line-clamp-2;
   }
 
   .terminal-suggestion-price {
-    @apply font-bold text-sm mt-1;
-    color: #1a1a1a;
+    @apply font-bold text-sm mt-2 px-3 py-1 rounded-full;
+    color: #fff;
   }
 
   .terminal-idle {
