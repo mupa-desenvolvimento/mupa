@@ -128,6 +128,8 @@ export default function TerminalMediaPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [tipoSugestao, setTipoSugestao] = useState("complementares");
+  const [beepEnabled, setBeepEnabled] = useState(true);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -138,10 +140,15 @@ export default function TerminalMediaPage() {
     const fetchConfig = async () => {
       const { data } = await supabase
         .from("terminal_config")
-        .select("valor")
-        .eq("chave", "tipo_sugestao")
-        .maybeSingle();
-      if (data?.valor) setTipoSugestao(data.valor);
+        .select("chave, valor")
+        .in("chave", ["tipo_sugestao", "beep_enabled", "tts_enabled"]);
+      if (data) {
+        for (const row of data) {
+          if (row.chave === "tipo_sugestao") setTipoSugestao(row.valor);
+          if (row.chave === "beep_enabled") setBeepEnabled(row.valor !== "false");
+          if (row.chave === "tts_enabled") setTtsEnabled(row.valor !== "false");
+        }
+      }
     };
     fetchConfig();
   }, []);
