@@ -95,28 +95,36 @@ Deno.serve(async (req) => {
   );
 
   const url = new URL(req.url);
+  const tipo = url.searchParams.get("tipo") || "preco";
   const preco = parseFloat(url.searchParams.get("preco") || "0");
   const precoLista = parseFloat(url.searchParams.get("preco_lista") || "0");
-  const nome = url.searchParams.get("nome") || "";
   const incluirSugestao = url.searchParams.get("sugestao") === "true";
 
-  if (!preco) {
-    return new Response(JSON.stringify({ error: "Informe ?preco=X" }), {
-      status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
   try {
-    const isOferta = precoLista > 0 && precoLista > preco;
-    const precoTexto = formatPrecoTexto(preco);
-
-    // Build the spoken text - only price, no product name
     let texto = "";
-    if (isOferta) {
-      const frase = FRASES_OFERTA[Math.floor(Math.random() * FRASES_OFERTA.length)];
-      texto = `${frase} Por apenas ${precoTexto}.`;
+
+    if (tipo === "indisponivel") {
+      texto = FRASES_INDISPONIVEL[Math.floor(Math.random() * FRASES_INDISPONIVEL.length)];
     } else {
-      texto = `${precoTexto}.`;
+      if (!preco) {
+        return new Response(JSON.stringify({ error: "Informe ?preco=X" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const isOferta = precoLista > 0 && precoLista > preco;
+      const precoTexto = formatPrecoTexto(preco);
+
+      if (isOferta) {
+        const frase = FRASES_OFERTA[Math.floor(Math.random() * FRASES_OFERTA.length)];
+        texto = `${frase} Por apenas ${precoTexto}.`;
+      } else {
+        texto = `${precoTexto}.`;
+      }
+
+      if (incluirSugestao) {
+        const frase = FRASES_SUGESTAO[Math.floor(Math.random() * FRASES_SUGESTAO.length)];
+        texto += ` ${frase}`;
+      }
     }
 
     if (incluirSugestao) {
