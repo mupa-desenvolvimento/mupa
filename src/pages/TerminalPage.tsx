@@ -499,37 +499,47 @@ export default function TerminalPage() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.5 }}
               >
-                <AnimatePresence mode="wait">
-                  {mediaList[currentMediaIndex] && (
-                    <motion.div
-                      key={mediaList[currentMediaIndex].id}
-                      className="terminal-media-item"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.6 }}
-                    >
-                      {mediaList[currentMediaIndex].tipo === "imagem" ? (
-                        <img
-                          src={mediaList[currentMediaIndex].url}
-                          alt=""
-                          className="terminal-media-content"
-                        />
-                      ) : (
-                        <video
-                          src={mediaList[currentMediaIndex].url}
-                          className="terminal-media-content"
-                          autoPlay
-                          muted
-                          playsInline
-                          onEnded={() =>
-                            setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length)
+                {/* Crossfade: render ALL media stacked, only active one is visible */}
+                {mediaList.map((media, idx) => (
+                  <motion.div
+                    key={media.id}
+                    className="terminal-media-item"
+                    initial={false}
+                    animate={{ opacity: idx === currentMediaIndex ? 1 : 0 }}
+                    transition={{ duration: 1.2, ease: "easeInOut" }}
+                    style={{ pointerEvents: idx === currentMediaIndex ? "auto" : "none" }}
+                  >
+                    {media.tipo === "imagem" ? (
+                      <img
+                        src={media.url}
+                        alt=""
+                        className="terminal-media-content"
+                      />
+                    ) : (
+                      <video
+                        src={media.url}
+                        className="terminal-media-content"
+                        autoPlay={idx === currentMediaIndex}
+                        muted
+                        playsInline
+                        onEnded={() => {
+                          if (idx === currentMediaIndex) {
+                            setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length);
                           }
-                        />
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                        }}
+                        ref={(el) => {
+                          if (!el) return;
+                          if (idx === currentMediaIndex) {
+                            el.play().catch(() => {});
+                          } else {
+                            el.pause();
+                            el.currentTime = 0;
+                          }
+                        }}
+                      />
+                    )}
+                  </motion.div>
+                ))}
               </motion.div>
             ) : (
               <motion.div
