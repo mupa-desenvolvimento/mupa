@@ -31,6 +31,7 @@ const App = () => (
               <Route path="/imagens" element={<ImagensPage />} />
               <Route path="/docs" element={<DocsPage />} />
             </Route>
+            <Route path="/terminal" element={<TerminalPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
