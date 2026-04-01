@@ -683,6 +683,66 @@ export default function TerminalPage() {
 
   const transitionStyle = "background 1s ease, color 0.6s ease";
 
+  // ── Activation Screen ──
+  if (!deviceActivated) {
+    return (
+      <div className="terminal-page flex items-center justify-center" style={{ background: "linear-gradient(160deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)", cursor: "default" }}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+          className="flex flex-col items-center gap-8 p-12 rounded-3xl"
+          style={{ background: "rgba(255,255,255,0.05)", backdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.1)", maxWidth: 480 }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+              <Barcode className="w-7 h-7 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white">Mupa Terminal</h1>
+              <p className="text-sm text-white/50">Ativação de Dispositivo</p>
+            </div>
+          </div>
+
+          <p className="text-white/70 text-center text-sm leading-relaxed">
+            Digite o código de ativação fornecido pelo administrador ou escaneie o QR Code para vincular este terminal à sua empresa.
+          </p>
+
+          <div className="w-full space-y-3">
+            <input
+              type="text"
+              placeholder="Ex: ABCD1234"
+              value={activationCode}
+              onChange={(e) => setActivationCode(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === "Enter" && activateDevice()}
+              maxLength={12}
+              className="w-full text-center text-2xl font-mono tracking-[0.3em] px-4 py-4 rounded-xl border bg-white/10 text-white placeholder:text-white/30 border-white/20 focus:border-blue-400 focus:outline-none transition-colors"
+              autoFocus
+            />
+            {activationError && (
+              <motion.p
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-red-400 text-sm text-center"
+              >
+                {activationError}
+              </motion.p>
+            )}
+            <button
+              onClick={activateDevice}
+              disabled={!activationCode.trim() || activatingDevice}
+              className="w-full py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all"
+            >
+              {activatingDevice ? "Ativando..." : "Ativar Dispositivo"}
+            </button>
+          </div>
+
+          <p className="text-white/30 text-xs">Catálogo Mupa v1.0</p>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={containerRef}
