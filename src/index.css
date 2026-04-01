@@ -241,7 +241,13 @@
   }
 
   .terminal-product-image-large {
-    @apply w-64 h-64 object-contain relative z-10;
+    @apply object-contain relative z-10;
+    width: 28vh;
+    height: 28vh;
+    max-width: 320px;
+    max-height: 320px;
+    min-width: 120px;
+    min-height: 120px;
     filter: drop-shadow(0 12px 25px rgba(0,0,0,0.15));
   }
 
