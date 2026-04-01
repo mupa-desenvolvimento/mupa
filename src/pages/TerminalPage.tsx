@@ -206,7 +206,8 @@ export default function TerminalPage() {
   };
 
   const consultar = async (code?: string) => {
-    const searchEan = code || ean.trim();
+    // Strip non-numeric chars (barcode scanners may add prefixes/suffixes)
+    const searchEan = (code || ean).replace(/\D/g, "").trim();
     if (!searchEan) return;
 
     setLoading(true);
@@ -217,7 +218,8 @@ export default function TerminalPage() {
     try {
       const prodRes = await fetch(`${BASE_URL}/api-produtos?ean=${searchEan}`);
       if (!prodRes.ok) {
-        setError("Produto não encontrado");
+        console.warn("[Terminal] EAN not found:", searchEan);
+        setError(`Produto não encontrado (${searchEan})`);
         setLoading(false);
         return;
       }
