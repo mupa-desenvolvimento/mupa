@@ -554,7 +554,7 @@ export default function TerminalPage() {
 
   const bgGradient = produto
     ? `linear-gradient(160deg, ${t.background[0]} 0%, ${t.background[1]} 50%, ${t.background[2]} 100%)`
-    : `linear-gradient(160deg, #1a0a0a 0%, #2d0f0f 50%, #0d0d0d 100%)`;
+    : `linear-gradient(160deg, #f5f0ef 0%, #f8f2f1 50%, #faf6f5 100%)`;
 
   const transitionStyle = "background 1s ease, color 0.6s ease";
 
