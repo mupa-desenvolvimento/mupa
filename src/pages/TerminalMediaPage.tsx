@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
-import { Upload, Trash2, GripVertical, Image, Video, ExternalLink, Settings, Volume2, Bell, Paintbrush, LayoutGrid } from "lucide-react";
+import { Upload, Trash2, GripVertical, Image, Video, ExternalLink, Settings, Volume2, Bell, Paintbrush, LayoutGrid, RotateCcw, RefreshCw } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -348,6 +348,37 @@ export default function TerminalMediaPage() {
     );
   };
 
+  const resetToDefault = async () => {
+    await applyLayout("classico");
+    toast.success("Aparência resetada para o padrão (Clássico)");
+  };
+
+  const resetConfigs = async () => {
+    setTipoSugestao("complementares");
+    setBeepEnabled(true);
+    setTtsEnabled(true);
+    const defaults = [
+      { chave: "tipo_sugestao", valor: "complementares" },
+      { chave: "beep_enabled", valor: "true" },
+      { chave: "tts_enabled", valor: "true" },
+    ];
+    for (const c of defaults) {
+      await supabase.from("terminal_config").upsert(
+        { ...c, atualizado_em: new Date().toISOString() },
+        { onConflict: "chave" }
+      );
+    }
+    toast.success("Configurações resetadas para o padrão");
+  };
+
+  const notifyTerminal = async () => {
+    await supabase.from("terminal_config").upsert(
+      { chave: "last_updated", valor: new Date().toISOString(), atualizado_em: new Date().toISOString() },
+      { onConflict: "chave" }
+    );
+    toast.success("Terminal notificado — ele irá recarregar as configurações");
+  };
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
@@ -358,6 +389,10 @@ export default function TerminalMediaPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={notifyTerminal}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Atualizar Terminal
+          </Button>
           <a href="/terminal" target="_blank" rel="noopener noreferrer">
             <Button variant="outline" size="sm">
               <ExternalLink className="w-4 h-4 mr-2" />
@@ -469,9 +504,10 @@ export default function TerminalMediaPage() {
           <div className="space-y-5 stat-card !p-5">
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-sm font-medium">Ajuste Fino</h3>
-              {layout !== "personalizado" && (
-                <span className="text-xs text-muted-foreground">Alterar desmarca o layout pré-definido</span>
-              )}
+              <Button variant="ghost" size="sm" onClick={resetToDefault} className="text-xs gap-1.5">
+                <RotateCcw className="w-3.5 h-3.5" />
+                Resetar para Padrão
+              </Button>
             </div>
 
             <div className="space-y-1">
@@ -607,6 +643,13 @@ export default function TerminalMediaPage() {
               setTtsEnabled(checked);
               saveConfig("tts_enabled", String(checked));
             }} />
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <Button variant="ghost" size="sm" onClick={resetConfigs} className="text-xs gap-1.5">
+              <RotateCcw className="w-3.5 h-3.5" />
+              Resetar Configurações
+            </Button>
           </div>
         </TabsContent>
       </Tabs>
