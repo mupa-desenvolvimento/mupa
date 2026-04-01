@@ -250,9 +250,9 @@ export default function TerminalMediaPage() {
     await applyLayout("classico");
     // Reset colors too
     setCorAutoEnabled(true);
-    setCorFundo("#1a0a0a");
+    setCorFundo("#f5f0ef");
     setCorDescricao("#c0392b");
-    setCorPreco("#ffffff");
+    setCorPreco("#1a1a1a");
     setWavesEnabled(false);
     const colorDefaults = [
       { chave: "cor_auto", valor: "true" },
