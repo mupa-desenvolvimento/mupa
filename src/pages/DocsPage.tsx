@@ -196,7 +196,7 @@ export default function DocsPage() {
                       className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
                     >
                       {copied === ep.curl ? (
-                        <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+                        <CheckCircle className="h-3.5 w-3.5 text-primary" />
                       ) : (
                         <Copy className="h-3.5 w-3.5" />
                       )}
