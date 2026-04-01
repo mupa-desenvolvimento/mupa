@@ -109,7 +109,7 @@ export default function TerminalMediaPage() {
   const [maxSugestoes, setMaxSugestoes] = useState(3);
   // Color configs
   const [corAutoEnabled, setCorAutoEnabled] = useState(true);
-  const [corFundo, setCorFundo] = useState("#1a0a0a");
+  const [corFundo, setCorFundo] = useState("#f5f0ef");
   const [corDescricao, setCorDescricao] = useState("#c0392b");
   const [corPreco, setCorPreco] = useState("#ffffff");
   const [wavesEnabled, setWavesEnabled] = useState(false);
