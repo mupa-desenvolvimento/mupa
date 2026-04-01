@@ -257,6 +257,30 @@ export type Database = {
         }
         Relationships: []
       }
+      tts_cache: {
+        Row: {
+          cache_key: string
+          criado_em: string
+          id: string
+          storage_path: string
+          texto: string
+        }
+        Insert: {
+          cache_key: string
+          criado_em?: string
+          id?: string
+          storage_path: string
+          texto: string
+        }
+        Update: {
+          cache_key?: string
+          criado_em?: string
+          id?: string
+          storage_path?: string
+          texto?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
