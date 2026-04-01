@@ -327,6 +327,8 @@ export default function TerminalPage() {
         background: [corFundo, `${corFundo}ee`, corFundo],
         bannerGradient: `linear-gradient(135deg, ${corDescricao}, ${corDescricao}cc)`,
         bannerShadow: `0 8px 30px ${corDescricao}66`,
+        bannerTextColor: (() => { const m = corDescricao.match(/\d+/g); if (m) { const c = { r: +m[0], g: +m[1], b: +m[2] }; return luminance(c) > 0.18 ? "#1a1a1a" : "#ffffff"; } return "#ffffff"; })(),
+        bannerTextMuted: (() => { const m = corDescricao.match(/\d+/g); if (m) { const c = { r: +m[0], g: +m[1], b: +m[2] }; return luminance(c) > 0.18 ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.8)"; } return "rgba(255,255,255,0.8)"; })(),
         textColor: corPreco,
         primary: corDescricao,
         accent: corDescricao,
