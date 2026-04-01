@@ -330,6 +330,60 @@ async function generateThemeFromImage(imageUrl: string): Promise<ProductTheme> {
 const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 
 export default function TerminalPage() {
+  // ── Device activation state ──
+  const [deviceActivated, setDeviceActivated] = useState<boolean>(() => {
+    return !!localStorage.getItem("mupa_device_id");
+  });
+  const [activationCode, setActivationCode] = useState("");
+  const [activationError, setActivationError] = useState<string | null>(null);
+  const [activatingDevice, setActivatingDevice] = useState(false);
+  const [deviceEmpresa, setDeviceEmpresa] = useState<string | null>(null);
+
+  const activateDevice = async () => {
+    const code = activationCode.trim().toUpperCase();
+    if (!code) return;
+    setActivatingDevice(true);
+    setActivationError(null);
+    try {
+      const { data, error } = await supabase
+        .from("dispositivos")
+        .select("id, empresa_id, ativo")
+        .eq("codigo_ativacao", code)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        setActivationError("Código inválido. Verifique e tente novamente.");
+        setActivatingDevice(false);
+        return;
+      }
+      // Activate device
+      await supabase.from("dispositivos").update({
+        ativo: true,
+        ativado_em: new Date().toISOString(),
+        ultimo_acesso: new Date().toISOString(),
+      }).eq("id", data.id);
+
+      localStorage.setItem("mupa_device_id", data.id);
+      localStorage.setItem("mupa_empresa_id", data.empresa_id || "");
+      setDeviceEmpresa(data.empresa_id);
+      setDeviceActivated(true);
+    } catch (e: any) {
+      setActivationError(e.message || "Erro ao ativar dispositivo");
+    }
+    setActivatingDevice(false);
+  };
+
+  // Load empresa on mount if device is activated
+  useEffect(() => {
+    const empresaId = localStorage.getItem("mupa_empresa_id");
+    if (empresaId) setDeviceEmpresa(empresaId);
+    // Update last access
+    const deviceId = localStorage.getItem("mupa_device_id");
+    if (deviceId) {
+      supabase.from("dispositivos").update({ ultimo_acesso: new Date().toISOString() }).eq("id", deviceId).then(() => {});
+    }
+  }, []);
+
   const [ean, setEan] = useState("");
   const [produto, setProduto] = useState<Produto | null>(null);
   const [sugestoes, setSugestoes] = useState<Sugestoes | null>(null);
@@ -628,6 +682,66 @@ export default function TerminalPage() {
     : `linear-gradient(160deg, #f5f0ef 0%, #f8f2f1 50%, #faf6f5 100%)`;
 
   const transitionStyle = "background 1s ease, color 0.6s ease";
+
+  // ── Activation Screen ──
+  if (!deviceActivated) {
+    return (
+      <div className="terminal-page flex items-center justify-center" style={{ background: "linear-gradient(160deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)", cursor: "default" }}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+          className="flex flex-col items-center gap-8 p-12 rounded-3xl"
+          style={{ background: "rgba(255,255,255,0.05)", backdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.1)", maxWidth: 480 }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+              <Barcode className="w-7 h-7 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white">Mupa Terminal</h1>
+              <p className="text-sm text-white/50">Ativação de Dispositivo</p>
+            </div>
+          </div>
+
+          <p className="text-white/70 text-center text-sm leading-relaxed">
+            Digite o código de ativação fornecido pelo administrador ou escaneie o QR Code para vincular este terminal à sua empresa.
+          </p>
+
+          <div className="w-full space-y-3">
+            <input
+              type="text"
+              placeholder="Ex: ABCD1234"
+              value={activationCode}
+              onChange={(e) => setActivationCode(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === "Enter" && activateDevice()}
+              maxLength={12}
+              className="w-full text-center text-2xl font-mono tracking-[0.3em] px-4 py-4 rounded-xl border bg-white/10 text-white placeholder:text-white/30 border-white/20 focus:border-blue-400 focus:outline-none transition-colors"
+              autoFocus
+            />
+            {activationError && (
+              <motion.p
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-red-400 text-sm text-center"
+              >
+                {activationError}
+              </motion.p>
+            )}
+            <button
+              onClick={activateDevice}
+              disabled={!activationCode.trim() || activatingDevice}
+              className="w-full py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all"
+            >
+              {activatingDevice ? "Ativando..." : "Ativar Dispositivo"}
+            </button>
+          </div>
+
+          <p className="text-white/30 text-xs">Catálogo Mupa v1.0</p>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div
