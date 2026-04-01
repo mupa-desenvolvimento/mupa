@@ -530,9 +530,8 @@ export default function TerminalPage() {
 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const speakPrice = useCallback(async (preco: number, nome: string, precoLista?: number, hasSugestoes?: boolean) => {
+  const speakPrice = useCallback(async (preco: number, precoLista?: number, currentTipoSugestao?: string) => {
     try {
-      // Stop any currently playing audio
       if (currentAudioRef.current) {
         currentAudioRef.current.pause();
         currentAudioRef.current = null;
@@ -540,9 +539,8 @@ export default function TerminalPage() {
 
       const params = new URLSearchParams({
         preco: preco.toString(),
-        nome,
         ...(precoLista && precoLista > preco ? { preco_lista: precoLista.toString() } : {}),
-        ...(hasSugestoes ? { sugestao: "true" } : {}),
+        tipo_sugestao: currentTipoSugestao || "complementares",
       });
 
       const res = await fetch(`${BASE_URL}/tts-audio?${params}`);
