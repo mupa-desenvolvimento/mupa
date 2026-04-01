@@ -52,6 +52,16 @@ interface ProductTheme {
   suggestionBg: string;
   suggestionBorder: string;
   volumeBadgeBg: string;
+  // Main colored container
+  containerBg: string;
+  containerGradient: string;
+  containerTextColor: string;
+  containerTextMuted: string;
+  // Price sub-container (secondary color)
+  priceContainerBg: string;
+  priceContainerGradient: string;
+  priceTextColor: string;
+  priceTextMuted: string;
 }
 
 const FALLBACK_THEME: ProductTheme = {
