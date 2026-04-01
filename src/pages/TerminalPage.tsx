@@ -573,6 +573,12 @@ export default function TerminalPage() {
       const prodRes = await fetch(`${BASE_URL}/api-produtos?ean=${searchEan}`);
       if (!prodRes.ok) {
         setError(`Produto não encontrado (${searchEan})`);
+        if (ttsEnabled) {
+          fetch(`${BASE_URL}/tts-audio?tipo=indisponivel`)
+            .then(r => r.json())
+            .then(d => { if (d.audio_url) { const a = new Audio(d.audio_url); currentAudioRef.current = a; a.play().catch(() => {}); } })
+            .catch(() => {});
+        }
         setLoading(false);
         return;
       }
