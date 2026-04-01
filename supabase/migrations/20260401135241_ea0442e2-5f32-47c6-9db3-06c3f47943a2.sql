@@ -1,0 +1,1 @@
+ALTER TABLE public.sync_log ADD COLUMN IF NOT EXISTS current_offset integer DEFAULT 0;
