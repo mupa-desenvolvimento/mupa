@@ -5,6 +5,7 @@ import {
   RefreshCw,
   Image,
   FileText,
+  Monitor,
   Zap,
   LogOut,
 } from "lucide-react";
