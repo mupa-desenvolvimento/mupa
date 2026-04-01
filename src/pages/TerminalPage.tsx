@@ -34,7 +34,71 @@ export default function TerminalPage() {
   const [sugestoes, setSugestoes] = useState<Sugestoes | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Auto-fullscreen on mount & track fullscreen state
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const enterFs = async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await el.requestFullscreen();
+        }
+      } catch {}
+    };
+
+    // Try auto-enter; browsers may block without user gesture
+    enterFs();
+
+    const onFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  // Reset to idle after 30s of inactivity when a product is shown
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => {
+      setProduto(null);
+      setSugestoes(null);
+      setEan("");
+      setError(null);
+      inputRef.current?.focus();
+    }, 30_000);
+  }, []);
+
+  useEffect(() => {
+    if (produto) resetIdleTimer();
+    return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
+  }, [produto, resetIdleTimer]);
+
+  // Reset idle timer on any interaction
+  useEffect(() => {
+    const handler = () => { if (produto) resetIdleTimer(); };
+    window.addEventListener("pointerdown", handler);
+    window.addEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("pointerdown", handler);
+      window.removeEventListener("keydown", handler);
+    };
+  }, [produto, resetIdleTimer]);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await containerRef.current?.requestFullscreen();
+      }
+    } catch {}
+  };
 
   const consultar = async (code?: string) => {
     const searchEan = code || ean.trim();
