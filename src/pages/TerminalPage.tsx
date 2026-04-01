@@ -45,6 +45,8 @@ interface ProductTheme {
   cardColor: string;
   bannerGradient: string;
   bannerShadow: string;
+  bannerTextColor: string;
+  bannerTextMuted: string;
   blobColors: string[];
   waveColors: string[];
   suggestionBg: string;
