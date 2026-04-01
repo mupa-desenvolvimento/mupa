@@ -111,7 +111,7 @@ export default function TerminalMediaPage() {
   const [corAutoEnabled, setCorAutoEnabled] = useState(true);
   const [corFundo, setCorFundo] = useState("#f5f0ef");
   const [corDescricao, setCorDescricao] = useState("#c0392b");
-  const [corPreco, setCorPreco] = useState("#ffffff");
+  const [corPreco, setCorPreco] = useState("#1a1a1a");
   const [wavesEnabled, setWavesEnabled] = useState(false);
 
   const sensors = useSensors(
