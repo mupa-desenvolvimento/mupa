@@ -221,33 +221,43 @@
   }
 
   .terminal-product-area {
-    @apply relative z-10 flex flex-col items-center w-full max-w-md mx-auto px-4 pb-8 flex-1 pt-6;
+    @apply relative z-10 flex flex-col items-center w-full max-w-md mx-auto px-4 pb-4 flex-1 pt-4;
   }
 
-  /* Large product image at the top */
+  /* Large product image at the top - OUTSIDE the main container */
   .terminal-product-image-top {
-    @apply relative flex items-center justify-center w-full;
+    @apply relative flex items-center justify-center w-full z-20;
+    margin-bottom: -40px;
   }
 
   @media (orientation: portrait) {
     .terminal-product-image-top {
       margin-top: -30px;
-      margin-bottom: -30px;
+      margin-bottom: -50px;
     }
   }
 
   .terminal-product-image-large {
     @apply w-64 h-64 object-contain relative z-10;
-    filter: drop-shadow(0 8px 20px rgba(0,0,0,0.12));
+    filter: drop-shadow(0 12px 25px rgba(0,0,0,0.15));
   }
 
   .terminal-no-image-large {
     @apply w-64 h-64 flex items-center justify-center;
   }
 
-  /* Description block - clean text layout */
-  .terminal-description-block {
-    @apply w-full mt-4 px-4 text-center;
+  /* MAIN COLORED CONTAINER - wraps all info below image */
+  .terminal-main-container {
+    @apply w-full rounded-3xl px-5 pt-14 pb-5 flex flex-col items-center relative z-10;
+    box-shadow: 0 4px 30px rgba(0,0,0,0.08);
+  }
+
+  /* Description sub-card (white/translucent inside main container) */
+  .terminal-desc-card {
+    @apply w-full rounded-2xl px-5 py-4 text-center;
+    background: rgba(255,255,255,0.75);
+    backdrop-filter: blur(8px);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
   }
 
   .terminal-desc-highlight {
@@ -262,7 +272,7 @@
   }
 
   .terminal-desc-brand {
-    @apply text-xs mt-1 uppercase tracking-widest;
+    @apply text-xs mt-2 uppercase tracking-widest;
     color: #999999;
   }
 
