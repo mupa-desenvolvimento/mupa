@@ -348,6 +348,37 @@ export default function TerminalMediaPage() {
     );
   };
 
+  const resetToDefault = async () => {
+    await applyLayout("classico");
+    toast.success("Aparência resetada para o padrão (Clássico)");
+  };
+
+  const resetConfigs = async () => {
+    setTipoSugestao("complementares");
+    setBeepEnabled(true);
+    setTtsEnabled(true);
+    const defaults = [
+      { chave: "tipo_sugestao", valor: "complementares" },
+      { chave: "beep_enabled", valor: "true" },
+      { chave: "tts_enabled", valor: "true" },
+    ];
+    for (const c of defaults) {
+      await supabase.from("terminal_config").upsert(
+        { ...c, atualizado_em: new Date().toISOString() },
+        { onConflict: "chave" }
+      );
+    }
+    toast.success("Configurações resetadas para o padrão");
+  };
+
+  const notifyTerminal = async () => {
+    await supabase.from("terminal_config").upsert(
+      { chave: "last_updated", valor: new Date().toISOString(), atualizado_em: new Date().toISOString() },
+      { onConflict: "chave" }
+    );
+    toast.success("Terminal notificado — ele irá recarregar as configurações");
+  };
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
