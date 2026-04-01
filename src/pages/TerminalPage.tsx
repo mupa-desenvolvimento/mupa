@@ -276,6 +276,19 @@ function _generateTheme(colors: RGB[]): ProductTheme {
   const bannerDark = darkenRgb(accent, 0.7);
   const cardColor = rgbaStr(primary, 0.05);
 
+  // Main container: lightened primary
+  const containerLight = lightenRgb(primary, 0.72);
+  const containerLighter = lightenRgb(primary, 0.82);
+  const containerLum = luminance(containerLight);
+  const containerTextColor = containerLum > 0.4 ? "#1a1a1a" : "#ffffff";
+  const containerTextMuted = containerLum > 0.4 ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)";
+
+  // Price container: secondary color
+  const secDark = darkenRgb(secondary, 0.75);
+  const priceLum = luminance(secondary);
+  const priceTextColor = priceLum > 0.18 ? "#1a1a1a" : "#ffffff";
+  const priceTextMuted = priceLum > 0.18 ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.75)";
+
   return {
     primary: rgbStr(primary), secondary: rgbStr(secondary), accent: rgbStr(accent), tertiary: rgbStr(tertiary),
     background: [rgbStr(bg1), rgbStr(bg2), rgbStr(bg3)],
@@ -290,9 +303,17 @@ function _generateTheme(colors: RGB[]): ProductTheme {
       `radial-gradient(circle, ${rgbaStr(fourth, 0.1)}, transparent 70%)`,
     ],
     waveColors: [rgbaStr(accent, 0.1), rgbaStr(secondary, 0.07)],
-    suggestionBg: rgbaStr(primary, 0.05),
-    suggestionBorder: rgbaStr(primary, 0.08),
+    suggestionBg: rgbaStr(primary, 0.08),
+    suggestionBorder: rgbaStr(primary, 0.12),
     volumeBadgeBg: `linear-gradient(135deg, ${rgbStr(accent)}, ${rgbStr(darkenRgb(accent, 0.65))})`,
+    containerBg: rgbStr(containerLight),
+    containerGradient: `linear-gradient(180deg, ${rgbStr(containerLight)} 0%, ${rgbStr(containerLighter)} 100%)`,
+    containerTextColor,
+    containerTextMuted,
+    priceContainerBg: rgbStr(secondary),
+    priceContainerGradient: `linear-gradient(135deg, ${rgbStr(secondary)}, ${rgbStr(secDark)})`,
+    priceTextColor,
+    priceTextMuted,
   };
 }
 
