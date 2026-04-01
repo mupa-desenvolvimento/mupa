@@ -1,11 +1,12 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Upload, Trash2, GripVertical, Image, Video, ExternalLink } from "lucide-react";
+import { Upload, Trash2, GripVertical, Image, Video, ExternalLink, Settings } from "lucide-react";
 
 interface TerminalMedia {
   id: string;
@@ -19,10 +20,40 @@ interface TerminalMedia {
   criado_em: string;
 }
 
+const SUGGESTION_TYPES = [
+  { value: "complementares", label: "Complementares (IA)" },
+  { value: "mesma_marca", label: "Mesma Marca" },
+  { value: "perfil", label: "Por Perfil (IA)" },
+  { value: "todas", label: "Todas (misto)" },
+];
+
 export default function TerminalMediaPage() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [tipoSugestao, setTipoSugestao] = useState("complementares");
+
+  // Fetch config
+  useEffect(() => {
+    const fetch = async () => {
+      const { data } = await supabase
+        .from("terminal_config")
+        .select("valor")
+        .eq("chave", "tipo_sugestao")
+        .maybeSingle();
+      if (data?.valor) setTipoSugestao(data.valor);
+    };
+    fetch();
+  }, []);
+
+  const saveTipoSugestao = async (value: string) => {
+    setTipoSugestao(value);
+    const { error } = await supabase
+      .from("terminal_config")
+      .upsert({ chave: "tipo_sugestao", valor: value, atualizado_em: new Date().toISOString() }, { onConflict: "chave" });
+    if (error) toast.error("Erro ao salvar configuração");
+    else toast.success("Tipo de sugestão salvo");
+  };
 
   const { data: mediaList = [], isLoading } = useQuery({
     queryKey: ["terminal-media"],
@@ -140,6 +171,25 @@ export default function TerminalMediaPage() {
         </div>
       </div>
 
+      {/* Suggestion type config */}
+      <div className="stat-card !p-4 flex items-center gap-4">
+        <Settings className="w-5 h-5 text-muted-foreground shrink-0" />
+        <div className="flex-1">
+          <p className="text-sm font-medium">Tipo de Sugestão no Terminal</p>
+          <p className="text-xs text-muted-foreground">Define quais sugestões aparecem ao consultar um produto</p>
+        </div>
+        <Select value={tipoSugestao} onValueChange={saveTipoSugestao}>
+          <SelectTrigger className="w-52">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SUGGESTION_TYPES.map(t => (
+              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <input
         ref={fileInputRef}
         type="file"
@@ -172,7 +222,6 @@ export default function TerminalMediaPage() {
             >
               <GripVertical className="w-4 h-4 text-muted-foreground/40 shrink-0" />
 
-              {/* Thumbnail */}
               <div className="w-20 h-14 rounded-lg overflow-hidden bg-muted shrink-0">
                 {item.tipo === "imagem" ? (
                   <img src={item.url} alt={item.nome} className="w-full h-full object-cover" />
@@ -183,7 +232,6 @@ export default function TerminalMediaPage() {
                 )}
               </div>
 
-              {/* Info */}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{item.nome}</p>
                 <p className="text-xs text-muted-foreground capitalize">
@@ -192,7 +240,6 @@ export default function TerminalMediaPage() {
                 </p>
               </div>
 
-              {/* Duration (images only) */}
               {item.tipo === "imagem" && (
                 <div className="flex items-center gap-1 shrink-0">
                   <Input
@@ -212,7 +259,6 @@ export default function TerminalMediaPage() {
                 </div>
               )}
 
-              {/* Toggle active */}
               <Switch
                 checked={item.ativo}
                 onCheckedChange={(checked) =>
@@ -220,7 +266,6 @@ export default function TerminalMediaPage() {
                 }
               />
 
-              {/* Delete */}
               <Button
                 variant="ghost"
                 size="icon"

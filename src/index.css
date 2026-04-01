@@ -199,25 +199,7 @@
     top: 40%; right: -60px;
   }
 
-  .terminal-search {
-    @apply relative z-10 flex items-center gap-3 w-full max-w-lg mx-auto mt-6 px-4 py-3 rounded-2xl;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(12px);
-  }
-
-  .terminal-input {
-    @apply flex-1 bg-transparent text-white text-base outline-none placeholder:text-white/30;
-    font-family: var(--font-body);
-  }
-
-  .terminal-search-btn {
-    @apply shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-white transition-all;
-    background: linear-gradient(135deg, #c0392b, #96281b);
-  }
-  .terminal-search-btn:hover {
-    transform: scale(1.05);
-  }
+  /* Search bar removed — hidden input used instead */
 
   .terminal-loading {
     @apply relative z-10 flex flex-col items-center justify-center flex-1 mt-20;
@@ -239,23 +221,25 @@
   }
 
   .terminal-product-area {
-    @apply relative z-10 flex flex-col items-center w-full max-w-md mx-auto px-4 pb-8 flex-1;
+    @apply relative z-10 flex flex-col items-center w-full max-w-md mx-auto px-4 pb-8 flex-1 pt-4;
   }
 
-  .terminal-product-main {
-    @apply flex flex-col items-center w-full;
+  /* Large product image at the top */
+  .terminal-product-image-top {
+    @apply relative flex items-center justify-center w-full;
   }
 
-  .terminal-product-left {
-    @apply flex flex-col items-center w-full;
+  .terminal-product-image-large {
+    @apply w-64 h-64 object-contain relative z-10 drop-shadow-2xl;
+    filter: drop-shadow(0 10px 25px rgba(0,0,0,0.5));
   }
 
-  .terminal-product-right {
-    @apply relative flex flex-col items-center mt-6;
+  .terminal-no-image-large {
+    @apply w-64 h-64 flex items-center justify-center;
   }
 
   .terminal-name-banner {
-    @apply w-full mt-6 px-5 py-3 rounded-xl;
+    @apply w-full mt-4 px-5 py-3 rounded-xl;
     background: linear-gradient(135deg, #c0392b, #a93226);
     box-shadow: 0 8px 30px rgba(192, 57, 43, 0.4);
   }
@@ -266,20 +250,6 @@
 
   .terminal-product-brand {
     @apply text-white/70 text-sm mt-0.5 uppercase tracking-wider;
-  }
-
-  .terminal-product-image {
-    @apply w-48 h-48 object-contain relative z-10 drop-shadow-2xl;
-    filter: drop-shadow(0 10px 25px rgba(0,0,0,0.5));
-  }
-
-  .terminal-no-image {
-    @apply w-48 h-48 flex items-center justify-center;
-  }
-
-  .terminal-pedestal {
-    @apply w-56 h-5 rounded-full -mt-2;
-    background: radial-gradient(ellipse, rgba(255,255,255,0.15), transparent 70%);
   }
 
   .terminal-price-area {
@@ -376,34 +346,25 @@
   }
 
   .terminal-media-content {
-    @apply w-full h-full object-contain;
-  }
-
-  .terminal-media-search-overlay {
-    @apply absolute bottom-8 left-0 right-0 z-10 text-center;
-    text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+    @apply w-full h-full object-cover;
   }
 
   /* ===== LANDSCAPE MODE (width > height) ===== */
   @media (orientation: landscape) and (min-width: 640px) {
     .terminal-product-area {
-      @apply max-w-5xl flex-row flex-wrap justify-center items-start pt-2;
+      @apply max-w-5xl flex-row flex-wrap justify-center items-center pt-2;
     }
 
-    .terminal-product-main {
-      @apply flex-row items-center flex-1 gap-4;
+    .terminal-product-image-top {
+      @apply flex-none;
     }
 
-    .terminal-product-left {
-      @apply items-start flex-1;
-    }
-
-    .terminal-product-right {
-      @apply mt-0 flex-1;
+    .terminal-product-image-large {
+      @apply w-72 h-72;
     }
 
     .terminal-name-banner {
-      @apply mt-4 rounded-xl;
+      @apply mt-0 rounded-xl flex-1;
     }
 
     .terminal-product-name {
@@ -415,7 +376,8 @@
     }
 
     .terminal-price-area {
-      @apply text-left mt-6;
+      @apply text-left mt-4;
+      flex-basis: 100%;
     }
 
     .terminal-price {
@@ -438,29 +400,17 @@
       @apply justify-start;
     }
 
-    .terminal-product-image {
-      @apply w-64 h-64;
-    }
-
-    .terminal-pedestal {
-      @apply w-72;
-    }
-
     .terminal-suggestions {
       @apply mt-4 w-full;
       flex-basis: 100%;
     }
 
     .terminal-suggestions-grid {
-      @apply grid-cols-6 gap-3;
+      @apply grid-cols-3 gap-3;
     }
 
     .terminal-suggestion-img {
       @apply w-16 h-16;
-    }
-
-    .terminal-search {
-      @apply mt-3;
     }
   }
 }

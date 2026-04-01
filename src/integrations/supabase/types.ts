@@ -200,6 +200,27 @@ export type Database = {
         }
         Relationships: []
       }
+      terminal_config: {
+        Row: {
+          atualizado_em: string
+          chave: string
+          id: string
+          valor: string
+        }
+        Insert: {
+          atualizado_em?: string
+          chave: string
+          id?: string
+          valor: string
+        }
+        Update: {
+          atualizado_em?: string
+          chave?: string
+          id?: string
+          valor?: string
+        }
+        Relationships: []
+      }
       terminal_media: {
         Row: {
           ativo: boolean
