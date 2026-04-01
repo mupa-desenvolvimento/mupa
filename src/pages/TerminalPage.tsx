@@ -57,20 +57,20 @@ const FALLBACK_THEME: ProductTheme = {
   secondary: "rgb(142,68,173)",
   accent: "rgb(231,76,60)",
   tertiary: "rgb(44,62,80)",
-  background: ["#1a0a0a", "#2d0f0f", "#0d0d0d"],
-  textColor: "#ffffff",
-  textMuted: "rgba(255,255,255,0.5)",
-  cardColor: "rgba(255,255,255,0.06)",
+  background: ["#f5f0ef", "#f8f2f1", "#faf6f5"],
+  textColor: "#1a1a1a",
+  textMuted: "rgba(0,0,0,0.45)",
+  cardColor: "rgba(0,0,0,0.04)",
   bannerGradient: "linear-gradient(135deg, rgb(192,57,43), rgb(169,50,38))",
-  bannerShadow: "0 8px 30px rgba(192,57,43,0.4)",
+  bannerShadow: "0 8px 30px rgba(192,57,43,0.25)",
   blobColors: [
-    "radial-gradient(circle, rgba(139,26,26,0.6), transparent 70%)",
-    "radial-gradient(circle, rgba(74,14,14,0.5), transparent 70%)",
-    "radial-gradient(circle, rgba(45,15,15,0.4), transparent 70%)",
+    "radial-gradient(circle, rgba(192,57,43,0.15), transparent 70%)",
+    "radial-gradient(circle, rgba(142,68,173,0.1), transparent 70%)",
+    "radial-gradient(circle, rgba(44,62,80,0.08), transparent 70%)",
   ],
-  waveColors: ["rgba(192,57,43,0.12)", "rgba(192,57,43,0.08)"],
-  suggestionBg: "rgba(255,255,255,0.06)",
-  suggestionBorder: "rgba(255,255,255,0.08)",
+  waveColors: ["rgba(192,57,43,0.1)", "rgba(192,57,43,0.06)"],
+  suggestionBg: "rgba(0,0,0,0.03)",
+  suggestionBorder: "rgba(0,0,0,0.06)",
   volumeBadgeBg: "linear-gradient(135deg, rgb(192,57,43), rgb(150,40,27))",
 };
 
@@ -240,32 +240,34 @@ function _generateTheme(colors: RGB[]): ProductTheme {
   const accent = byVibrancy[0].rgb;
   const tertiary = withHsl[2]?.rgb || lightenRgb(primary, 0.3);
   const fourth = withHsl[3]?.rgb || darkenRgb(secondary, 0.5);
-  const bg1 = darkenRgb(primary, 0.12);
-  const bg2 = darkenRgb(secondary, 0.15);
-  const bg3 = darkenRgb(tertiary, 0.08);
-  const avgBg: RGB = { r: Math.round((bg1.r + bg2.r) / 2), g: Math.round((bg1.g + bg2.g) / 2), b: Math.round((bg1.b + bg2.b) / 2) };
-  const textColor = ensureContrast(avgBg, true);
-  const textMuted = rgbaStr(textColor === "rgb(255,255,255)" ? { r: 255, g: 255, b: 255 } : { r: 20, g: 20, b: 20 }, 0.5);
+
+  // LIGHT backgrounds: very light tinted versions of palette colors
+  const bg1 = lightenRgb(primary, 0.88);
+  const bg2 = lightenRgb(secondary, 0.9);
+  const bg3 = lightenRgb(tertiary, 0.92);
+
+  // Dark text for light bg
+  const textColor = "#1a1a1a";
+  const textMuted = "rgba(0,0,0,0.45)";
+
+  // Banner keeps vivid color
   const bannerDark = darkenRgb(accent, 0.7);
-  const cardColor = rgbaStr(lightenRgb(primary, 0.1), 0.08);
-  const priceLight = lightenRgb(accent, 0.5);
-  const priceFinal = contrastRatio(avgBg, priceLight) >= 4.5
-    ? rgbStr(priceLight) : contrastRatio(avgBg, { r: 255, g: 255, b: 255 }) >= 4.5 ? "#ffffff" : rgbStr(lightenRgb(accent, 0.7));
+  const cardColor = rgbaStr(primary, 0.05);
 
   return {
     primary: rgbStr(primary), secondary: rgbStr(secondary), accent: rgbStr(accent), tertiary: rgbStr(tertiary),
     background: [rgbStr(bg1), rgbStr(bg2), rgbStr(bg3)],
     textColor, textMuted, cardColor,
     bannerGradient: `linear-gradient(135deg, ${rgbStr(accent)}, ${rgbStr(bannerDark)})`,
-    bannerShadow: `0 8px 30px ${rgbaStr(accent, 0.35)}`,
+    bannerShadow: `0 8px 30px ${rgbaStr(accent, 0.25)}`,
     blobColors: [
-      `radial-gradient(circle, ${rgbaStr(primary, 0.4)}, transparent 70%)`,
-      `radial-gradient(circle, ${rgbaStr(secondary, 0.3)}, transparent 70%)`,
-      `radial-gradient(circle, ${rgbaStr(fourth, 0.25)}, transparent 70%)`,
+      `radial-gradient(circle, ${rgbaStr(primary, 0.15)}, transparent 70%)`,
+      `radial-gradient(circle, ${rgbaStr(secondary, 0.12)}, transparent 70%)`,
+      `radial-gradient(circle, ${rgbaStr(fourth, 0.1)}, transparent 70%)`,
     ],
-    waveColors: [rgbaStr(accent, 0.12), rgbaStr(secondary, 0.08)],
-    suggestionBg: rgbaStr(lightenRgb(primary, 0.05), 0.08),
-    suggestionBorder: rgbaStr(lightenRgb(primary, 0.15), 0.12),
+    waveColors: [rgbaStr(accent, 0.1), rgbaStr(secondary, 0.07)],
+    suggestionBg: rgbaStr(primary, 0.05),
+    suggestionBorder: rgbaStr(primary, 0.08),
     volumeBadgeBg: `linear-gradient(135deg, ${rgbStr(accent)}, ${rgbStr(darkenRgb(accent, 0.65))})`,
   };
 }
@@ -552,7 +554,7 @@ export default function TerminalPage() {
 
   const bgGradient = produto
     ? `linear-gradient(160deg, ${t.background[0]} 0%, ${t.background[1]} 50%, ${t.background[2]} 100%)`
-    : `linear-gradient(160deg, #1a0a0a 0%, #2d0f0f 50%, #0d0d0d 100%)`;
+    : `linear-gradient(160deg, #f5f0ef 0%, #f8f2f1 50%, #faf6f5 100%)`;
 
   const transitionStyle = "background 1s ease, color 0.6s ease";
 
@@ -577,8 +579,8 @@ export default function TerminalPage() {
 
       <button
         onClick={toggleFullscreen}
-        className="absolute top-3 right-3 z-50 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/70 transition-colors"
-        style={{ background: "rgba(255,255,255,0.05)" }}
+        className="absolute top-3 right-3 z-50 w-8 h-8 rounded-lg flex items-center justify-center text-black/20 hover:text-black/50 transition-colors"
+        style={{ background: "rgba(0,0,0,0.03)" }}
         title={isFullscreen ? "Sair do fullscreen" : "Entrar em fullscreen"}
       >
         {isFullscreen ? (
@@ -666,8 +668,8 @@ export default function TerminalPage() {
           <motion.div className="terminal-error" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}>
             <p className="text-2xl font-bold" style={{ color: t.textColor }}>{error}</p>
             <p className="mt-2" style={{ color: t.textMuted }}>Verifique o código e tente novamente</p>
-            <motion.div className="mt-4 h-1 rounded-full overflow-hidden w-48 mx-auto" style={{ background: "rgba(255,255,255,0.15)" }}>
-              <motion.div className="h-full rounded-full" style={{ background: "rgba(255,255,255,0.4)" }}
+            <motion.div className="mt-4 h-1 rounded-full overflow-hidden w-48 mx-auto" style={{ background: "rgba(0,0,0,0.08)" }}>
+              <motion.div className="h-full rounded-full" style={{ background: "rgba(0,0,0,0.25)" }}
                 initial={{ width: "100%" }} animate={{ width: "0%" }} transition={{ duration: 3, ease: "linear" }} />
             </motion.div>
           </motion.div>
@@ -696,7 +698,7 @@ export default function TerminalPage() {
                   style={{ maxWidth: imgSize, maxHeight: imgSize }} />
               ) : (
                 <div className="terminal-no-image-large" style={{ width: imgSize, height: imgSize }}>
-                  <Barcode className="w-20 h-20 text-white/30" />
+                  <Barcode className="w-20 h-20 text-black/15" />
                 </div>
               )}
             </motion.div>
@@ -766,7 +768,7 @@ export default function TerminalPage() {
                       {s.imagem_url_vtex ? (
                         <img src={s.imagem_url_vtex} alt={s.nome} className="terminal-suggestion-img" />
                       ) : (
-                        <div className="terminal-suggestion-noimg"><Barcode className="w-6 h-6 text-white/20" /></div>
+                        <div className="terminal-suggestion-noimg"><Barcode className="w-6 h-6 text-black/15" /></div>
                       )}
                       <p className="terminal-suggestion-name" style={{ color: t.textMuted }}>{s.nome_curto || s.nome}</p>
                       {s.preco && <p className="terminal-suggestion-price" style={{ color: t.textColor }}>R$ {s.preco.toFixed(2)}</p>}
@@ -807,10 +809,10 @@ export default function TerminalPage() {
             ) : (
               <motion.div className="terminal-idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ duration: 0.4 }}>
                 <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}>
-                  <Barcode className="w-24 h-24 text-white/15 mb-6" />
+                  <Barcode className="w-24 h-24 text-black/10 mb-6" />
                 </motion.div>
-                <p className="text-white/40 text-2xl font-bold">Consulte um produto</p>
-                <p className="text-white/25 text-lg mt-2">Escaneie o código de barras</p>
+                <p className="text-black/30 text-2xl font-bold">Consulte um produto</p>
+                <p className="text-black/20 text-lg mt-2">Escaneie o código de barras</p>
               </motion.div>
             )}
           </>

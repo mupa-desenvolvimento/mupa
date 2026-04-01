@@ -109,9 +109,9 @@ export default function TerminalMediaPage() {
   const [maxSugestoes, setMaxSugestoes] = useState(3);
   // Color configs
   const [corAutoEnabled, setCorAutoEnabled] = useState(true);
-  const [corFundo, setCorFundo] = useState("#1a0a0a");
+  const [corFundo, setCorFundo] = useState("#f5f0ef");
   const [corDescricao, setCorDescricao] = useState("#c0392b");
-  const [corPreco, setCorPreco] = useState("#ffffff");
+  const [corPreco, setCorPreco] = useState("#1a1a1a");
   const [wavesEnabled, setWavesEnabled] = useState(false);
 
   const sensors = useSensors(
@@ -250,15 +250,15 @@ export default function TerminalMediaPage() {
     await applyLayout("classico");
     // Reset colors too
     setCorAutoEnabled(true);
-    setCorFundo("#1a0a0a");
+    setCorFundo("#f5f0ef");
     setCorDescricao("#c0392b");
-    setCorPreco("#ffffff");
+    setCorPreco("#1a1a1a");
     setWavesEnabled(false);
     const colorDefaults = [
       { chave: "cor_auto", valor: "true" },
-      { chave: "cor_fundo", valor: "#1a0a0a" },
+      { chave: "cor_fundo", valor: "#f5f0ef" },
       { chave: "cor_descricao", valor: "#c0392b" },
-      { chave: "cor_preco", valor: "#ffffff" },
+      { chave: "cor_preco", valor: "#1a1a1a" },
       { chave: "waves_enabled", valor: "false" },
     ];
     for (const c of colorDefaults) {
@@ -482,33 +482,33 @@ export default function TerminalMediaPage() {
           {/* Live preview */}
           <div className="stat-card !p-5">
             <p className="text-xs text-muted-foreground mb-3">Pré-visualização</p>
-            <div className="rounded-xl p-6 flex flex-col items-center gap-3 text-white relative overflow-hidden"
-              style={{ background: corAutoEnabled ? "linear-gradient(160deg, #1a0a0a, #2d0f0f, #0d0d0d)" : `linear-gradient(160deg, ${corFundo}, ${corFundo}ee)` }}>
+            <div className="rounded-xl p-6 flex flex-col items-center gap-3 relative overflow-hidden"
+              style={{ background: corAutoEnabled ? "linear-gradient(160deg, #f5f0ef, #f8f2f1, #faf6f5)" : `linear-gradient(160deg, ${corFundo}, ${corFundo}ee)` }}>
               {wavesEnabled && (
                 <svg className="absolute bottom-0 left-0 w-full pointer-events-none" viewBox="0 0 1440 200" preserveAspectRatio="none" style={{ height: "40%", opacity: 0.5 }}>
-                  <path fill={corAutoEnabled ? "rgba(192,57,43,0.15)" : `${corDescricao}22`}
+                  <path fill={corAutoEnabled ? "rgba(192,57,43,0.1)" : `${corDescricao}18`}
                     d="M0,128L48,117.3C96,107,192,85,288,90.7C384,96,480,128,576,138.7C672,149,768,139,864,122.7C960,107,1056,85,1152,85.3C1248,85,1344,107,1392,117.3L1440,128L1440,200L0,200Z" />
-                  <path fill={corAutoEnabled ? "rgba(192,57,43,0.1)" : `${corDescricao}15`} style={{ opacity: 0.6 }}
+                  <path fill={corAutoEnabled ? "rgba(192,57,43,0.06)" : `${corDescricao}10`} style={{ opacity: 0.6 }}
                     d="M0,160L48,154.7C96,149,192,139,288,138.7C384,139,480,149,576,154.7C672,160,768,160,864,149.3C960,139,1056,117,1152,112C1248,107,1344,117,1392,122.7L1440,128L1440,200L0,200Z" />
                 </svg>
               )}
-              <div className="rounded-lg bg-white/10 flex items-center justify-center z-10"
-                style={{ width: Math.min(imgSize, 200), height: Math.min(imgSize, 200) }}>
-                <Image className="w-8 h-8 text-white/30" />
+              <div className="rounded-lg flex items-center justify-center z-10"
+                style={{ width: Math.min(imgSize, 200), height: Math.min(imgSize, 200), background: "rgba(0,0,0,0.04)" }}>
+                <Image className="w-8 h-8 text-black/20" />
               </div>
-              <div className="w-full rounded-lg px-3 py-2 text-center z-10"
+              <div className="w-full rounded-lg px-3 py-2 text-center z-10 text-white"
                 style={{ background: corAutoEnabled ? "linear-gradient(135deg, #c0392b, #a93226)" : `linear-gradient(135deg, ${corDescricao}, ${corDescricao}cc)` }}>
                 <p style={{ fontSize: Math.min(fontNome, 20) }} className="font-semibold">Nome do Produto</p>
               </div>
-              <p style={{ fontSize: Math.min(fontPreco, 48), color: corAutoEnabled ? "#fff" : corPreco }} className="font-bold z-10">
+              <p style={{ fontSize: Math.min(fontPreco, 48), color: corAutoEnabled ? "#1a1a1a" : corPreco }} className="font-bold z-10">
                 R$ 12,<span className="text-[0.5em]">99</span>
               </p>
               {maxSugestoes > 0 && (
                 <div className="flex gap-2 mt-2 z-10">
                   {Array.from({ length: Math.min(maxSugestoes, 4) }).map((_, i) => (
-                    <div key={i} className="w-12 h-12 rounded bg-white/10" />
+                    <div key={i} className="w-12 h-12 rounded" style={{ background: "rgba(0,0,0,0.04)" }} />
                   ))}
-                  {maxSugestoes > 4 && <span className="text-xs text-white/40 self-center">+{maxSugestoes - 4}</span>}
+                  {maxSugestoes > 4 && <span className="text-xs text-black/30 self-center">+{maxSugestoes - 4}</span>}
                 </div>
               )}
             </div>
