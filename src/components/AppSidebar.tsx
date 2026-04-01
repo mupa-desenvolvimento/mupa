@@ -6,7 +6,9 @@ import {
   Image,
   FileText,
   Zap,
+  LogOut,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -18,6 +20,7 @@ const navItems = [
 
 export default function AppSidebar() {
   const location = useLocation();
+  const { user, signOut } = useAuth();
 
   return (
     <aside className="sidebar-gradient fixed left-0 top-0 h-screen w-64 flex flex-col z-50">
@@ -57,7 +60,17 @@ export default function AppSidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-6 py-4 border-t border-sidebar-border">
+      <div className="px-6 py-4 border-t border-sidebar-border space-y-3">
+        {user && (
+          <p className="text-xs text-sidebar-foreground/60 truncate">{user.email}</p>
+        )}
+        <button
+          onClick={signOut}
+          className="flex items-center gap-2 text-xs text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors"
+        >
+          <LogOut className="h-3.5 w-3.5" />
+          Sair
+        </button>
         <p className="text-xs text-sidebar-foreground/40">
           Catálogo Rissul v1.0
         </p>
