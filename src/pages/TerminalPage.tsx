@@ -161,16 +161,37 @@ export default function TerminalPage() {
     return () => clearTimeout(timer);
   }, [isIdle, currentMediaIndex, mediaList]);
 
-  // Keep focus on hidden input for barcode scanner
+  // Keep focus on hidden input for barcode scanner — aggressively
   useEffect(() => {
     const keepFocus = () => {
       if (inputRef.current && document.activeElement !== inputRef.current) {
-        inputRef.current.focus();
+        inputRef.current.focus({ preventScroll: true });
       }
     };
-    const interval = setInterval(keepFocus, 500);
+    const interval = setInterval(keepFocus, 200);
     keepFocus();
-    return () => clearInterval(interval);
+
+    // Re-focus on any click/touch anywhere on the page
+    const onPointerDown = () => setTimeout(keepFocus, 50);
+    // Re-focus when window regains visibility
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") keepFocus();
+    };
+    // Re-focus after fullscreen changes
+    const onFsChange = () => setTimeout(keepFocus, 100);
+
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("touchstart", onPointerDown, true);
+    document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener("fullscreenchange", onFsChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("touchstart", onPointerDown, true);
+      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener("fullscreenchange", onFsChange);
+    };
   }, []);
 
   const toggleFullscreen = async () => {
