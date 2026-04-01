@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
   const tipo = url.searchParams.get("tipo") || "preco";
   const preco = parseFloat(url.searchParams.get("preco") || "0");
   const precoLista = parseFloat(url.searchParams.get("preco_lista") || "0");
-  const incluirSugestao = url.searchParams.get("sugestao") === "true";
+  const tipoSugestao = url.searchParams.get("tipo_sugestao") || "complementares";
 
   try {
     let texto = "";
@@ -136,10 +136,21 @@ Deno.serve(async (req) => {
         texto = `${precoTexto}.`;
       }
 
-      if (incluirSugestao) {
-        const frase = FRASES_SUGESTAO[Math.floor(Math.random() * FRASES_SUGESTAO.length)];
-        texto += ` ${frase}`;
+      // Pick suggestion phrase based on type
+      let frasesSugestao: string[];
+      switch (tipoSugestao) {
+        case "mesma_marca":
+          frasesSugestao = FRASES_SUGESTAO_MARCA;
+          break;
+        case "perfil":
+          frasesSugestao = FRASES_SUGESTAO_PERFIL;
+          break;
+        default:
+          frasesSugestao = FRASES_SUGESTAO_COMPLEMENTAR;
+          break;
       }
+      const fraseSug = frasesSugestao[Math.floor(Math.random() * frasesSugestao.length)];
+      texto += ` ${fraseSug}`;
     }
 
     // Cache key based on content
