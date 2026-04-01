@@ -449,7 +449,7 @@ export default function TerminalPage() {
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.4, delay: 0.25, ease: "easeOut" }}
             >
-              <h1 className="terminal-product-name">
+              <h1 className="terminal-product-name" style={{ fontSize: fontNome }}>
                 {produto.nome_curto || produto.nome}
               </h1>
               {produto.marca && (
