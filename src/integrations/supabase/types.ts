@@ -38,6 +38,197 @@ export type Database = {
         }
         Relationships: []
       }
+      dispositivos: {
+        Row: {
+          ativado_em: string | null
+          ativo: boolean
+          codigo_ativacao: string
+          criado_em: string
+          empresa_id: string | null
+          id: string
+          nome: string
+          ultimo_acesso: string | null
+        }
+        Insert: {
+          ativado_em?: string | null
+          ativo?: boolean
+          codigo_ativacao: string
+          criado_em?: string
+          empresa_id?: string | null
+          id?: string
+          nome?: string
+          ultimo_acesso?: string | null
+        }
+        Update: {
+          ativado_em?: string | null
+          ativo?: boolean
+          codigo_ativacao?: string
+          criado_em?: string
+          empresa_id?: string | null
+          id?: string
+          nome?: string
+          ultimo_acesso?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dispositivos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_api_config: {
+        Row: {
+          api_token: string | null
+          api_url: string
+          ativo: boolean
+          atualizado_em: string
+          criado_em: string
+          empresa_id: string
+          id: string
+          tipo_api: string
+        }
+        Insert: {
+          api_token?: string | null
+          api_url: string
+          ativo?: boolean
+          atualizado_em?: string
+          criado_em?: string
+          empresa_id: string
+          id?: string
+          tipo_api?: string
+        }
+        Update: {
+          api_token?: string | null
+          api_url?: string
+          ativo?: boolean
+          atualizado_em?: string
+          criado_em?: string
+          empresa_id?: string
+          id?: string
+          tipo_api?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_api_config_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_midias: {
+        Row: {
+          ativo: boolean
+          criado_em: string
+          duracao_segundos: number
+          empresa_id: string
+          id: string
+          nome: string
+          ordem: number
+          storage_path: string
+          tipo: string
+          url: string
+        }
+        Insert: {
+          ativo?: boolean
+          criado_em?: string
+          duracao_segundos?: number
+          empresa_id: string
+          id?: string
+          nome: string
+          ordem?: number
+          storage_path: string
+          tipo: string
+          url: string
+        }
+        Update: {
+          ativo?: boolean
+          criado_em?: string
+          duracao_segundos?: number
+          empresa_id?: string
+          id?: string
+          nome?: string
+          ordem?: number
+          storage_path?: string
+          tipo?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_midias_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_usuarios: {
+        Row: {
+          criado_em: string
+          empresa_id: string
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          criado_em?: string
+          empresa_id: string
+          id?: string
+          role?: string
+          user_id: string
+        }
+        Update: {
+          criado_em?: string
+          empresa_id?: string
+          id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_usuarios_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresas: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          criado_em: string
+          id: string
+          logo_url: string | null
+          nome: string
+          slug: string
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          criado_em?: string
+          id?: string
+          logo_url?: string | null
+          nome: string
+          slug: string
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          criado_em?: string
+          id?: string
+          logo_url?: string | null
+          nome?: string
+          slug?: string
+        }
+        Relationships: []
+      }
       marcas: {
         Row: {
           id: string
