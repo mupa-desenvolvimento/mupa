@@ -241,12 +241,22 @@
   }
 
   .terminal-product-image-large {
-    @apply w-64 h-64 object-contain relative z-10;
+    @apply object-contain relative z-10;
+    width: 28vh;
+    height: 28vh;
+    max-width: 320px;
+    max-height: 320px;
+    min-width: 120px;
+    min-height: 120px;
     filter: drop-shadow(0 12px 25px rgba(0,0,0,0.15));
   }
 
   .terminal-no-image-large {
-    @apply w-64 h-64 flex items-center justify-center;
+    @apply flex items-center justify-center;
+    width: 28vh;
+    height: 28vh;
+    max-width: 320px;
+    max-height: 320px;
   }
 
   /* MAIN COLORED CONTAINER - wraps all info below image */
@@ -428,7 +438,10 @@
     }
 
     .terminal-product-image-large {
-      @apply w-72 h-72;
+      width: 30vh;
+      height: 30vh;
+      max-width: 360px;
+      max-height: 360px;
     }
 
     .terminal-main-container {
