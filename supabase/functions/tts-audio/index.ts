@@ -17,13 +17,28 @@ const FRASES_OFERTA = [
   "Preço especial por tempo limitado! Aproveite!",
 ];
 
-const FRASES_SUGESTAO = [
-  "Aproveite também!",
-  "Veja o que pode combinar!",
-  "Que tal levar também?",
-  "Confira outras opções!",
-  "Combine com esses produtos!",
-  "Sugestões especiais para você!",
+const FRASES_SUGESTAO_MARCA = [
+  "Confira mais produtos da mesma marca!",
+  "Veja outros itens dessa marca!",
+  "Essa marca tem mais opções pra você!",
+  "Aproveite outros produtos da marca!",
+  "Conheça mais dessa marca!",
+];
+
+const FRASES_SUGESTAO_COMPLEMENTAR = [
+  "Que tal combinar com esses produtos?",
+  "Veja o que combina perfeitamente!",
+  "Aproveite e leve junto!",
+  "Esses produtos combinam muito bem!",
+  "Complete sua compra com essas sugestões!",
+  "Olha o que vai bem junto!",
+];
+
+const FRASES_SUGESTAO_PERFIL = [
+  "Selecionamos especialmente para você!",
+  "Sugestões pensadas no seu perfil!",
+  "Você também pode gostar desses!",
+  "Recomendados para você!",
 ];
 
 const FRASES_INDISPONIVEL = [
@@ -98,7 +113,7 @@ Deno.serve(async (req) => {
   const tipo = url.searchParams.get("tipo") || "preco";
   const preco = parseFloat(url.searchParams.get("preco") || "0");
   const precoLista = parseFloat(url.searchParams.get("preco_lista") || "0");
-  const incluirSugestao = url.searchParams.get("sugestao") === "true";
+  const tipoSugestao = url.searchParams.get("tipo_sugestao") || "complementares";
 
   try {
     let texto = "";
@@ -121,14 +136,25 @@ Deno.serve(async (req) => {
         texto = `${precoTexto}.`;
       }
 
-      if (incluirSugestao) {
-        const frase = FRASES_SUGESTAO[Math.floor(Math.random() * FRASES_SUGESTAO.length)];
-        texto += ` ${frase}`;
+      // Pick suggestion phrase based on type
+      let frasesSugestao: string[];
+      switch (tipoSugestao) {
+        case "mesma_marca":
+          frasesSugestao = FRASES_SUGESTAO_MARCA;
+          break;
+        case "perfil":
+          frasesSugestao = FRASES_SUGESTAO_PERFIL;
+          break;
+        default:
+          frasesSugestao = FRASES_SUGESTAO_COMPLEMENTAR;
+          break;
       }
+      const fraseSug = frasesSugestao[Math.floor(Math.random() * frasesSugestao.length)];
+      texto += ` ${fraseSug}`;
     }
 
     // Cache key based on content
-    const cacheKey = `${tipo}|${preco}|${precoLista > preco ? "1" : "0"}|${incluirSugestao ? "1" : "0"}`;
+    const cacheKey = `${tipo}|${preco}|${precoLista > preco ? "1" : "0"}|${tipoSugestao}`;
     
     // Check cache
     const { data: cached } = await supabase

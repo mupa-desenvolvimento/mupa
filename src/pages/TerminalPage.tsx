@@ -530,9 +530,8 @@ export default function TerminalPage() {
 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const speakPrice = useCallback(async (preco: number, nome: string, precoLista?: number, hasSugestoes?: boolean) => {
+  const speakPrice = useCallback(async (preco: number, precoLista?: number, currentTipoSugestao?: string) => {
     try {
-      // Stop any currently playing audio
       if (currentAudioRef.current) {
         currentAudioRef.current.pause();
         currentAudioRef.current = null;
@@ -540,9 +539,8 @@ export default function TerminalPage() {
 
       const params = new URLSearchParams({
         preco: preco.toString(),
-        nome,
         ...(precoLista && precoLista > preco ? { preco_lista: precoLista.toString() } : {}),
-        ...(hasSugestoes ? { sugestao: "true" } : {}),
+        tipo_sugestao: currentTipoSugestao || "complementares",
       });
 
       const res = await fetch(`${BASE_URL}/tts-audio?${params}`);
@@ -586,7 +584,7 @@ export default function TerminalPage() {
       const prod = prodData.produto;
       setProduto(prod);
 
-      if (ttsEnabled && prod.preco) speakPrice(prod.preco, prod.nome_curto || prod.nome, prod.preco_lista, true);
+      if (ttsEnabled && prod.preco) speakPrice(prod.preco, prod.preco_lista, tipoSugestao);
 
       if (corAutoEnabled && prod.imagem_url_vtex) {
         generateThemeFromImage(prod.imagem_url_vtex).then(t => setTheme(t));
