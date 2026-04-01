@@ -271,6 +271,8 @@ export default function TerminalPage() {
         value={ean}
         onChange={(e) => setEan(e.target.value)}
         onKeyDown={handleKeyDown}
+        onFocus={() => setInputFocused(true)}
+        onBlur={() => setInputFocused(false)}
         autoFocus
         style={{
           position: "absolute",
@@ -281,6 +283,17 @@ export default function TerminalPage() {
           pointerEvents: "none",
         }}
       />
+
+      {/* Focus indicator — green dot = ready to scan */}
+      <div
+        className="absolute bottom-2 left-2 z-50 flex items-center gap-1"
+        style={{ opacity: 0.6 }}
+      >
+        <div
+          className="w-2 h-2 rounded-full transition-colors duration-300"
+          style={{ backgroundColor: inputFocused ? "#22c55e" : "#ef4444" }}
+        />
+      </div>
 
       {/* Fullscreen toggle */}
       <button
