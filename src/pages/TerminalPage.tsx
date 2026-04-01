@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import { Barcode } from "lucide-react";
@@ -34,52 +34,253 @@ interface MediaItem {
   duracao_segundos: number;
 }
 
-const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+interface ProductTheme {
+  primary: string;
+  secondary: string;
+  accent: string;
+  tertiary: string;
+  background: string[];
+  textColor: string;
+  textMuted: string;
+  cardColor: string;
+  bannerGradient: string;
+  bannerShadow: string;
+  blobColors: string[];
+  waveColors: string[];
+  suggestionBg: string;
+  suggestionBorder: string;
+  volumeBadgeBg: string;
+}
 
-// Extract dominant color from image using canvas
-function extractDominantColor(imgUrl: string): Promise<{ r: number; g: number; b: number } | null> {
+const FALLBACK_THEME: ProductTheme = {
+  primary: "rgb(192,57,43)",
+  secondary: "rgb(142,68,173)",
+  accent: "rgb(231,76,60)",
+  tertiary: "rgb(44,62,80)",
+  background: ["#1a0a0a", "#2d0f0f", "#0d0d0d"],
+  textColor: "#ffffff",
+  textMuted: "rgba(255,255,255,0.5)",
+  cardColor: "rgba(255,255,255,0.06)",
+  bannerGradient: "linear-gradient(135deg, rgb(192,57,43), rgb(169,50,38))",
+  bannerShadow: "0 8px 30px rgba(192,57,43,0.4)",
+  blobColors: [
+    "radial-gradient(circle, rgba(139,26,26,0.6), transparent 70%)",
+    "radial-gradient(circle, rgba(74,14,14,0.5), transparent 70%)",
+    "radial-gradient(circle, rgba(45,15,15,0.4), transparent 70%)",
+  ],
+  waveColors: ["rgba(192,57,43,0.12)", "rgba(192,57,43,0.08)"],
+  suggestionBg: "rgba(255,255,255,0.06)",
+  suggestionBorder: "rgba(255,255,255,0.08)",
+  volumeBadgeBg: "linear-gradient(135deg, rgb(192,57,43), rgb(150,40,27))",
+};
+
+interface RGB { r: number; g: number; b: number; }
+interface HSL { h: number; s: number; l: number; }
+
+function rgbToHsl({ r, g, b }: RGB): HSL {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s: number;
+  const l = (max + min) / 2;
+  if (max === min) { s = 0; } else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      case b: h = ((r - g) / d + 4) / 6; break;
+    }
+  }
+  return { h: h * 360, s: s * 100, l: l * 100 };
+}
+
+function darkenRgb(c: RGB, factor: number): RGB {
+  return { r: Math.round(c.r * factor), g: Math.round(c.g * factor), b: Math.round(c.b * factor) };
+}
+
+function lightenRgb(c: RGB, factor: number): RGB {
+  return {
+    r: Math.round(c.r + (255 - c.r) * factor),
+    g: Math.round(c.g + (255 - c.g) * factor),
+    b: Math.round(c.b + (255 - c.b) * factor),
+  };
+}
+
+function rgbStr(c: RGB): string { return `rgb(${c.r},${c.g},${c.b})`; }
+function rgbaStr(c: RGB, a: number): string { return `rgba(${c.r},${c.g},${c.b},${a})`; }
+
+function luminance(c: RGB): number {
+  const [rs, gs, bs] = [c.r, c.g, c.b].map(v => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+}
+
+function contrastRatio(c1: RGB, c2: RGB): number {
+  const l1 = luminance(c1), l2 = luminance(c2);
+  const lighter = Math.max(l1, l2), darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function ensureContrast(bgColor: RGB, preferLight = true): string {
+  const white: RGB = { r: 255, g: 255, b: 255 };
+  const softWhite: RGB = { r: 245, g: 245, b: 245 };
+  const dark: RGB = { r: 20, g: 20, b: 20 };
+
+  if (preferLight) {
+    if (contrastRatio(bgColor, white) >= 4.5) return rgbStr(white);
+    if (contrastRatio(bgColor, softWhite) >= 4.5) return rgbStr(softWhite);
+    let test = { ...bgColor };
+    for (let i = 0; i < 10; i++) {
+      test = lightenRgb(test, 0.15);
+      if (contrastRatio(bgColor, test) >= 4.5) return rgbStr(test);
+    }
+    return rgbStr(dark);
+  }
+  return contrastRatio(bgColor, white) >= 4.5 ? rgbStr(white) : rgbStr(dark);
+}
+
+function colorDistance(a: RGB, b: RGB): number {
+  return Math.sqrt((a.r - b.r) ** 2 + (a.g - b.g) ** 2 + (a.b - b.b) ** 2);
+}
+
+function kMeansClusters(pixels: RGB[], k: number, iterations = 10): { center: RGB; count: number }[] {
+  if (pixels.length === 0) return [];
+  const centroids: RGB[] = [pixels[Math.floor(Math.random() * pixels.length)]];
+  while (centroids.length < k) {
+    const distances = pixels.map(p => Math.min(...centroids.map(c => colorDistance(p, c))));
+    const sum = distances.reduce((a, b) => a + b, 0);
+    let r = Math.random() * sum;
+    for (let i = 0; i < pixels.length; i++) {
+      r -= distances[i];
+      if (r <= 0) { centroids.push(pixels[i]); break; }
+    }
+  }
+
+  let assignments = new Array(pixels.length).fill(0);
+
+  for (let iter = 0; iter < iterations; iter++) {
+    for (let i = 0; i < pixels.length; i++) {
+      let minDist = Infinity, minIdx = 0;
+      for (let j = 0; j < centroids.length; j++) {
+        const d = colorDistance(pixels[i], centroids[j]);
+        if (d < minDist) { minDist = d; minIdx = j; }
+      }
+      assignments[i] = minIdx;
+    }
+    for (let j = 0; j < k; j++) {
+      let sr = 0, sg = 0, sb = 0, count = 0;
+      for (let i = 0; i < pixels.length; i++) {
+        if (assignments[i] === j) {
+          sr += pixels[i].r; sg += pixels[i].g; sb += pixels[i].b; count++;
+        }
+      }
+      if (count > 0) {
+        centroids[j] = { r: Math.round(sr / count), g: Math.round(sg / count), b: Math.round(sb / count) };
+      }
+    }
+  }
+
+  const counts = new Array(k).fill(0);
+  for (const a of assignments) counts[a]++;
+
+  return centroids.map((center, i) => ({ center, count: counts[i] }));
+}
+
+function extractPalette(imgUrl: string): Promise<RGB[]> {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
       try {
         const canvas = document.createElement("canvas");
-        const size = 50;
+        const size = 80;
         canvas.width = size;
         canvas.height = size;
         const ctx = canvas.getContext("2d");
-        if (!ctx) { resolve(null); return; }
+        if (!ctx) { resolve([]); return; }
         ctx.drawImage(img, 0, 0, size, size);
         const data = ctx.getImageData(0, 0, size, size).data;
-        let r = 0, g = 0, b = 0, count = 0;
+
+        const pixels: RGB[] = [];
         for (let i = 0; i < data.length; i += 4) {
-          // Skip near-white and near-black pixels (background)
-          const pr = data[i], pg = data[i + 1], pb = data[i + 2], pa = data[i + 3];
-          if (pa < 128) continue;
-          if (pr > 230 && pg > 230 && pb > 230) continue;
-          if (pr < 25 && pg < 25 && pb < 25) continue;
-          r += pr; g += pg; b += pb; count++;
+          const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+          if (a < 128) continue;
+          if (r > 235 && g > 235 && b > 235) continue;
+          if (r < 20 && g < 20 && b < 20) continue;
+          const max = Math.max(r, g, b), min = Math.min(r, g, b);
+          if (max - min < 15 && max > 60 && max < 200) continue;
+          pixels.push({ r, g, b });
         }
-        if (count === 0) { resolve(null); return; }
-        resolve({ r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count) });
-      } catch { resolve(null); }
+
+        if (pixels.length < 10) { resolve([]); return; }
+
+        const clusters = kMeansClusters(pixels, 5, 12);
+        clusters.sort((a, b) => b.count - a.count);
+
+        resolve(clusters.slice(0, 4).map(c => c.center));
+      } catch { resolve([]); }
     };
-    img.onerror = () => resolve(null);
+    img.onerror = () => resolve([]);
     img.src = imgUrl;
   });
 }
 
-function darken(r: number, g: number, b: number, factor = 0.3) {
-  return { r: Math.round(r * factor), g: Math.round(g * factor), b: Math.round(b * factor) };
-}
+const themeCache = new Map<string, ProductTheme>();
 
-function lighten(r: number, g: number, b: number, factor = 0.3) {
+function _generateTheme(colors: RGB[]): ProductTheme {
+  if (colors.length === 0) return FALLBACK_THEME;
+  const withHsl = colors.map(c => ({ rgb: c, hsl: rgbToHsl(c) }));
+  const byVibrancy = [...withHsl].sort((a, b) =>
+    (b.hsl.s * (100 - Math.abs(b.hsl.l - 50))) - (a.hsl.s * (100 - Math.abs(a.hsl.l - 50)))
+  );
+  const primary = withHsl[0].rgb;
+  const secondary = withHsl[1]?.rgb || darkenRgb(primary, 0.7);
+  const accent = byVibrancy[0].rgb;
+  const tertiary = withHsl[2]?.rgb || lightenRgb(primary, 0.3);
+  const fourth = withHsl[3]?.rgb || darkenRgb(secondary, 0.5);
+  const bg1 = darkenRgb(primary, 0.12);
+  const bg2 = darkenRgb(secondary, 0.15);
+  const bg3 = darkenRgb(tertiary, 0.08);
+  const avgBg: RGB = { r: Math.round((bg1.r + bg2.r) / 2), g: Math.round((bg1.g + bg2.g) / 2), b: Math.round((bg1.b + bg2.b) / 2) };
+  const textColor = ensureContrast(avgBg, true);
+  const textMuted = rgbaStr(textColor === "rgb(255,255,255)" ? { r: 255, g: 255, b: 255 } : { r: 20, g: 20, b: 20 }, 0.5);
+  const bannerDark = darkenRgb(accent, 0.7);
+  const cardColor = rgbaStr(lightenRgb(primary, 0.1), 0.08);
+  const priceLight = lightenRgb(accent, 0.5);
+  const priceFinal = contrastRatio(avgBg, priceLight) >= 4.5
+    ? rgbStr(priceLight) : contrastRatio(avgBg, { r: 255, g: 255, b: 255 }) >= 4.5 ? "#ffffff" : rgbStr(lightenRgb(accent, 0.7));
+
   return {
-    r: Math.round(r + (255 - r) * factor),
-    g: Math.round(g + (255 - g) * factor),
-    b: Math.round(b + (255 - b) * factor),
+    primary: rgbStr(primary), secondary: rgbStr(secondary), accent: rgbStr(accent), tertiary: rgbStr(tertiary),
+    background: [rgbStr(bg1), rgbStr(bg2), rgbStr(bg3)],
+    textColor, textMuted, cardColor,
+    bannerGradient: `linear-gradient(135deg, ${rgbStr(accent)}, ${rgbStr(bannerDark)})`,
+    bannerShadow: `0 8px 30px ${rgbaStr(accent, 0.35)}`,
+    blobColors: [
+      `radial-gradient(circle, ${rgbaStr(primary, 0.4)}, transparent 70%)`,
+      `radial-gradient(circle, ${rgbaStr(secondary, 0.3)}, transparent 70%)`,
+      `radial-gradient(circle, ${rgbaStr(fourth, 0.25)}, transparent 70%)`,
+    ],
+    waveColors: [rgbaStr(accent, 0.12), rgbaStr(secondary, 0.08)],
+    suggestionBg: rgbaStr(lightenRgb(primary, 0.05), 0.08),
+    suggestionBorder: rgbaStr(lightenRgb(primary, 0.15), 0.12),
+    volumeBadgeBg: `linear-gradient(135deg, ${rgbStr(accent)}, ${rgbStr(darkenRgb(accent, 0.65))})`,
   };
 }
+
+async function generateThemeFromImage(imageUrl: string): Promise<ProductTheme> {
+  const cached = themeCache.get(imageUrl);
+  if (cached) return cached;
+
+  const palette = await extractPalette(imageUrl);
+  const theme = _generateTheme(palette);
+  themeCache.set(imageUrl, theme);
+  return theme;
+}
+
+const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 
 export default function TerminalPage() {
   const [ean, setEan] = useState("");
@@ -94,29 +295,38 @@ export default function TerminalPage() {
   const [beepEnabled, setBeepEnabled] = useState(true);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [inputFocused, setInputFocused] = useState(false);
-  // Appearance configs
   const [fontNome, setFontNome] = useState(24);
   const [fontPreco, setFontPreco] = useState(72);
   const [imgSize, setImgSize] = useState(280);
   const [maxSugestoes, setMaxSugestoes] = useState(3);
-  // Color configs
   const [corAutoEnabled, setCorAutoEnabled] = useState(true);
   const [corFundo, setCorFundo] = useState("#1a0a0a");
   const [corDescricao, setCorDescricao] = useState("#c0392b");
   const [corPreco, setCorPreco] = useState("#ffffff");
   const [wavesEnabled, setWavesEnabled] = useState(false);
-  // Dynamic colors extracted from product image
-  const [dynamicBg, setDynamicBg] = useState<string | null>(null);
-  const [dynamicDescBg, setDynamicDescBg] = useState<string | null>(null);
-  const [dynamicPriceColor, setDynamicPriceColor] = useState<string | null>(null);
-  const [dynamicWaveColor, setDynamicWaveColor] = useState<string | null>(null);
+  const [theme, setTheme] = useState<ProductTheme | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const errorTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Wake Lock
+  const activeTheme = useMemo<ProductTheme>(() => {
+    if (corAutoEnabled && theme) return theme;
+    if (!corAutoEnabled) {
+      return {
+        ...FALLBACK_THEME,
+        background: [corFundo, `${corFundo}ee`, corFundo],
+        bannerGradient: `linear-gradient(135deg, ${corDescricao}, ${corDescricao}cc)`,
+        bannerShadow: `0 8px 30px ${corDescricao}66`,
+        textColor: corPreco,
+        primary: corDescricao,
+        accent: corDescricao,
+      };
+    }
+    return FALLBACK_THEME;
+  }, [corAutoEnabled, theme, corFundo, corDescricao, corPreco]);
+
   useEffect(() => {
     let wakeLock: WakeLockSentinel | null = null;
     const requestWakeLock = async () => {
@@ -128,7 +338,6 @@ export default function TerminalPage() {
     return () => { document.removeEventListener("visibilitychange", onVisibilityChange); wakeLock?.release(); };
   }, []);
 
-  // Auto-fullscreen
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -139,7 +348,6 @@ export default function TerminalPage() {
     return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
-  // Fetch terminal config
   const loadConfig = useCallback(async () => {
     const { data } = await supabase.from("terminal_config").select("chave, valor");
     if (data) {
@@ -164,7 +372,6 @@ export default function TerminalPage() {
 
   useEffect(() => { loadConfig(); }, [loadConfig]);
 
-  // Realtime config
   useEffect(() => {
     const channel = supabase.channel("terminal-config-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "terminal_config" }, () => loadConfig())
@@ -172,7 +379,6 @@ export default function TerminalPage() {
     return () => { supabase.removeChannel(channel); };
   }, [loadConfig]);
 
-  // Realtime media
   useEffect(() => {
     const channel = supabase.channel("terminal-media-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "terminal_media" }, async () => {
@@ -183,12 +389,11 @@ export default function TerminalPage() {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Idle timer (30s)
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     idleTimerRef.current = setTimeout(() => {
       setProduto(null); setSugestoes(null); setEan(""); setError(null);
-      setDynamicBg(null); setDynamicDescBg(null); setDynamicPriceColor(null); setDynamicWaveColor(null);
+      setTheme(null);
       inputRef.current?.focus();
     }, 30_000);
   }, []);
@@ -205,18 +410,14 @@ export default function TerminalPage() {
     return () => { window.removeEventListener("pointerdown", handler); window.removeEventListener("keydown", handler); };
   }, [produto, resetIdleTimer]);
 
-  // Auto-dismiss error after 3 seconds
   useEffect(() => {
     if (error) {
       if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
-      errorTimerRef.current = setTimeout(() => {
-        setError(null);
-      }, 3000);
+      errorTimerRef.current = setTimeout(() => setError(null), 3000);
     }
     return () => { if (errorTimerRef.current) clearTimeout(errorTimerRef.current); };
   }, [error]);
 
-  // Fetch terminal media
   useEffect(() => {
     const fetchMedia = async () => {
       const { data } = await supabase.from("terminal_media").select("id, tipo, url, duracao_segundos")
@@ -226,7 +427,6 @@ export default function TerminalPage() {
     fetchMedia();
   }, []);
 
-  // Slideshow timer
   const isIdle = !produto && !loading && !error;
   useEffect(() => {
     if (!isIdle || mediaList.length <= 1) return;
@@ -236,7 +436,6 @@ export default function TerminalPage() {
     return () => clearTimeout(timer);
   }, [isIdle, currentMediaIndex, mediaList]);
 
-  // Keep focus
   useEffect(() => {
     const keepFocus = () => {
       if (inputRef.current && document.activeElement !== inputRef.current) inputRef.current.focus({ preventScroll: true });
@@ -263,7 +462,7 @@ export default function TerminalPage() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else await containerRef.current?.requestFullscreen();
-    } catch {}
+    } catch { }
   };
 
   const playBeep = useCallback(() => {
@@ -276,7 +475,7 @@ export default function TerminalPage() {
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
       osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
-    } catch {}
+    } catch { }
   }, []);
 
   const speakPrice = useCallback((preco: number, nome: string) => {
@@ -290,23 +489,8 @@ export default function TerminalPage() {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = "pt-BR"; utterance.rate = 0.95;
       window.speechSynthesis.speak(utterance);
-    } catch {}
+    } catch { }
   }, []);
-
-  // Apply dynamic colors from image
-  const applyDynamicColors = useCallback(async (imageUrl: string) => {
-    if (!corAutoEnabled) return;
-    const color = await extractDominantColor(imageUrl);
-    if (!color) return;
-    const { r, g, b } = color;
-    const dark = darken(r, g, b, 0.2);
-    setDynamicBg(`linear-gradient(160deg, rgb(${dark.r},${dark.g},${dark.b}) 0%, rgb(${Math.round(dark.r * 1.3)},${Math.round(dark.g * 1.3)},${Math.round(dark.b * 1.3)}) 50%, rgb(${dark.r},${dark.g},${dark.b}) 100%)`);
-    setDynamicDescBg(`linear-gradient(135deg, rgb(${r},${g},${b}), rgb(${Math.round(r * 0.75)},${Math.round(g * 0.75)},${Math.round(b * 0.75)}))`);
-    // Price: use lighter variant for contrast
-    const light = lighten(r, g, b, 0.6);
-    setDynamicPriceColor(`rgb(${light.r},${light.g},${light.b})`);
-    setDynamicWaveColor(`rgba(${r},${g},${b},0.15)`);
-  }, [corAutoEnabled]);
 
   const consultar = async (code?: string) => {
     const searchEan = (code || ean).replace(/\D/g, "").trim();
@@ -314,7 +498,7 @@ export default function TerminalPage() {
     setEan("");
     if (beepEnabled) playBeep();
     setLoading(true); setError(null); setProduto(null); setSugestoes(null);
-    setDynamicBg(null); setDynamicDescBg(null); setDynamicPriceColor(null); setDynamicWaveColor(null);
+    setTheme(null);
 
     try {
       const prodRes = await fetch(`${BASE_URL}/api-produtos?ean=${searchEan}`);
@@ -328,10 +512,13 @@ export default function TerminalPage() {
       setProduto(prod);
 
       if (ttsEnabled && prod.preco) speakPrice(prod.preco, prod.nome_curto || prod.nome);
-      if (prod.imagem_url_vtex) applyDynamicColors(prod.imagem_url_vtex);
+
+      if (corAutoEnabled && prod.imagem_url_vtex) {
+        generateThemeFromImage(prod.imagem_url_vtex).then(t => setTheme(t));
+      }
 
       fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=${maxSugestoes || 3}`)
-        .then(r => r.json()).then(d => setSugestoes(d.sugestoes)).catch(() => {});
+        .then(r => r.json()).then(d => setSugestoes(d.sugestoes)).catch(() => { });
 
       setLoading(false);
     } catch {
@@ -361,65 +548,33 @@ export default function TerminalPage() {
   };
 
   const allSugestoes = getSugestoes();
+  const t = activeTheme;
 
-  // Resolved colors: dynamic (auto) or manual
-  const bgStyle = corAutoEnabled && dynamicBg
-    ? { background: dynamicBg }
-    : { background: `linear-gradient(160deg, ${corFundo} 0%, ${corFundo}ee 50%, ${corFundo} 100%)` };
+  const bgGradient = produto
+    ? `linear-gradient(160deg, ${t.background[0]} 0%, ${t.background[1]} 50%, ${t.background[2]} 100%)`
+    : `linear-gradient(160deg, #1a0a0a 0%, #2d0f0f 50%, #0d0d0d 100%)`;
 
-  const descBgStyle = corAutoEnabled && dynamicDescBg
-    ? { background: dynamicDescBg, boxShadow: `0 8px 30px rgba(0,0,0,0.4)` }
-    : { background: `linear-gradient(135deg, ${corDescricao}, ${corDescricao}cc)`, boxShadow: `0 8px 30px ${corDescricao}66` };
-
-  const priceColor = corAutoEnabled && dynamicPriceColor ? dynamicPriceColor : corPreco;
-  const waveColor = corAutoEnabled && dynamicWaveColor ? dynamicWaveColor : `${corDescricao}22`;
-
-  const WaveSvg = () => (
-    <svg
-      className="absolute bottom-0 left-0 w-full pointer-events-none z-[1]"
-      viewBox="0 0 1440 320"
-      preserveAspectRatio="none"
-      style={{ height: "30vh", opacity: 0.7 }}
-    >
-      <path
-        fill={waveColor}
-        d="M0,224L48,208C96,192,192,160,288,165.3C384,171,480,213,576,224C672,235,768,213,864,186.7C960,160,1056,128,1152,128C1248,128,1344,160,1392,176L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
-      />
-      <path
-        fill={waveColor}
-        d="M0,288L48,272C96,256,192,224,288,213.3C384,203,480,213,576,229.3C672,245,768,267,864,261.3C960,256,1056,224,1152,208C1248,192,1344,192,1392,192L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
-        style={{ opacity: 0.6 }}
-      />
-    </svg>
-  );
+  const transitionStyle = "background 1s ease, color 0.6s ease";
 
   return (
     <div
       ref={containerRef}
       className="terminal-page"
-      style={{ ...bgStyle, cursor: "none", transition: "background 0.8s ease" }}
+      style={{ background: bgGradient, cursor: "none", transition: transitionStyle }}
     >
-      {/* Hidden input */}
       <input
-        ref={inputRef}
-        type="text"
-        inputMode="none"
-        value={ean}
-        onChange={(e) => setEan(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onFocus={() => setInputFocused(true)}
-        onBlur={() => setInputFocused(false)}
+        ref={inputRef} type="text" inputMode="none" value={ean}
+        onChange={(e) => setEan(e.target.value)} onKeyDown={handleKeyDown}
+        onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)}
         autoFocus
         style={{ position: "absolute", opacity: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}
       />
 
-      {/* Focus indicator */}
       <div className="absolute bottom-2 left-2 z-50 flex items-center gap-1" style={{ opacity: 0.6 }}>
         <div className="w-2 h-2 rounded-full transition-colors duration-300"
           style={{ backgroundColor: inputFocused ? "#22c55e" : "#ef4444" }} />
       </div>
 
-      {/* Fullscreen toggle */}
       <button
         onClick={toggleFullscreen}
         className="absolute top-3 right-3 z-50 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/70 transition-colors"
@@ -433,8 +588,38 @@ export default function TerminalPage() {
         )}
       </button>
 
-      {/* Blobs (only when no dynamic bg) */}
-      {!dynamicBg && (
+      <AnimatePresence>
+        {produto && (
+          <>
+            <motion.div
+              className="terminal-blob terminal-blob-1"
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.5 }}
+              transition={{ duration: 1.2, ease: "easeOut" }}
+              style={{ background: t.blobColors[0], transition: "background 1s ease" }}
+            />
+            <motion.div
+              className="terminal-blob terminal-blob-2"
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.5 }}
+              transition={{ duration: 1.4, ease: "easeOut", delay: 0.15 }}
+              style={{ background: t.blobColors[1], transition: "background 1s ease" }}
+            />
+            <motion.div
+              className="terminal-blob terminal-blob-3"
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.5 }}
+              transition={{ duration: 1.6, ease: "easeOut", delay: 0.3 }}
+              style={{ background: t.blobColors[2], transition: "background 1s ease" }}
+            />
+          </>
+        )}
+      </AnimatePresence>
+
+      {isIdle && !mediaList.length && (
         <>
           <div className="terminal-blob terminal-blob-1" />
           <div className="terminal-blob terminal-blob-2" />
@@ -442,46 +627,53 @@ export default function TerminalPage() {
         </>
       )}
 
-      {/* SVG Waves background */}
-      {wavesEnabled && produto && <WaveSvg />}
+      {wavesEnabled && produto && (
+        <svg
+          className="absolute bottom-0 left-0 w-full pointer-events-none z-[1]"
+          viewBox="0 0 1440 320"
+          preserveAspectRatio="none"
+          style={{ height: "30vh", opacity: 0.7, transition: "opacity 0.6s ease" }}
+        >
+          <motion.path
+            fill={t.waveColors[0]}
+            d="M0,224L48,208C96,192,192,160,288,165.3C384,171,480,213,576,224C672,235,768,213,864,186.7C960,160,1056,128,1152,128C1248,128,1344,160,1392,176L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.8 }}
+          />
+          <motion.path
+            fill={t.waveColors[1]}
+            d="M0,288L48,272C96,256,192,224,288,213.3C384,203,480,213,576,229.3C672,245,768,267,864,261.3C960,256,1056,224,1152,208C1248,192,1344,192,1392,192L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
+            style={{ opacity: 0.6 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0.6 }}
+            transition={{ duration: 0.8, delay: 0.2 }}
+          />
+        </svg>
+      )}
 
-      {/* Loading */}
       <AnimatePresence>
         {loading && (
           <motion.div className="terminal-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="terminal-spinner" />
-            <p className="text-white/70 text-lg mt-4">Consultando...</p>
+            <p className="text-lg mt-4" style={{ color: t.textMuted }}>Consultando...</p>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Error — auto-dismiss after 3s */}
       <AnimatePresence>
         {error && (
-          <motion.div
-            className="terminal-error"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-          >
-            <p className="text-2xl font-bold">{error}</p>
-            <p className="text-white/50 mt-2">Verifique o código e tente novamente</p>
-            {/* Countdown bar */}
-            <motion.div
-              className="mt-4 h-1 rounded-full bg-white/20 overflow-hidden w-48 mx-auto"
-            >
-              <motion.div
-                className="h-full bg-white/50 rounded-full"
-                initial={{ width: "100%" }}
-                animate={{ width: "0%" }}
-                transition={{ duration: 3, ease: "linear" }}
-              />
+          <motion.div className="terminal-error" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}>
+            <p className="text-2xl font-bold" style={{ color: t.textColor }}>{error}</p>
+            <p className="mt-2" style={{ color: t.textMuted }}>Verifique o código e tente novamente</p>
+            <motion.div className="mt-4 h-1 rounded-full overflow-hidden w-48 mx-auto" style={{ background: "rgba(255,255,255,0.15)" }}>
+              <motion.div className="h-full rounded-full" style={{ background: "rgba(255,255,255,0.4)" }}
+                initial={{ width: "100%" }} animate={{ width: "0%" }} transition={{ duration: 3, ease: "linear" }} />
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Product display */}
       <AnimatePresence mode="wait">
         {produto && !loading && (
           <motion.div
@@ -492,7 +684,6 @@ export default function TerminalPage() {
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.3 }}
           >
-            {/* Image */}
             <motion.div
               className="terminal-product-image-top"
               initial={{ scale: 0.5, opacity: 0, y: 40 }}
@@ -510,61 +701,62 @@ export default function TerminalPage() {
               )}
             </motion.div>
 
-            {/* Name + brand */}
             <motion.div
               className="terminal-name-banner"
-              style={{ ...descBgStyle, transition: "background 0.6s ease, box-shadow 0.6s ease" }}
+              style={{ background: t.bannerGradient, boxShadow: t.bannerShadow, transition: "background 0.8s ease, box-shadow 0.8s ease" }}
               initial={{ x: -80, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.4, delay: 0.25, ease: "easeOut" }}
             >
-              <h1 className="terminal-product-name" style={{ fontSize: fontNome }}>{produto.nome_curto || produto.nome}</h1>
-              {produto.marca && <p className="terminal-product-brand">{produto.marca}</p>}
+              <h1 className="terminal-product-name" style={{ fontSize: fontNome, color: t.textColor }}>
+                {produto.nome_curto || produto.nome}
+              </h1>
+              {produto.marca && <p className="terminal-product-brand" style={{ color: t.textMuted }}>{produto.marca}</p>}
             </motion.div>
 
-            {/* Price */}
-            <motion.div
-              className="terminal-price-area"
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: 0.35 }}
-            >
+            <motion.div className="terminal-price-area" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.35 }}>
               {hasDiscount && (
-                <p className="terminal-old-price">De R$ {produto.preco_lista!.toFixed(2)}</p>
+                <p className="terminal-old-price" style={{ color: t.textMuted }}>De R$ {produto.preco_lista!.toFixed(2)}</p>
               )}
-              <div className="terminal-price" style={{ fontSize: fontPreco, color: priceColor, transition: "color 0.6s ease" }}>
+              <div className="terminal-price" style={{ fontSize: fontPreco, color: t.textColor, transition: "color 0.8s ease" }}>
                 <span className="terminal-price-symbol">R$</span>
                 <motion.span
                   className="terminal-price-reais"
-                  style={{ fontSize: fontPreco, color: priceColor }}
+                  style={{ fontSize: fontPreco, color: t.textColor }}
                   initial={{ scale: 0.6, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   transition={{ duration: 0.4, delay: 0.45, type: "spring", stiffness: 300 }}
                 >
                   {formatPrice(produto.preco ?? 0).reais}
                 </motion.span>
-                <span className="terminal-price-centavos" style={{ fontSize: fontPreco * 0.45, color: priceColor }}>
+                <span className="terminal-price-centavos" style={{ fontSize: fontPreco * 0.45, color: t.textColor }}>
                   ,{formatPrice(produto.preco ?? 0).centavos}
                 </span>
               </div>
-              {produto.unidade_medida && <p className="terminal-unit">{produto.unidade_medida}</p>}
+              {produto.unidade_medida && <p className="terminal-unit" style={{ color: t.textMuted }}>{produto.unidade_medida}</p>}
               {hasDiscount && (
                 <motion.div className="terminal-volume-price" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.55 }}>
-                  <span className="terminal-volume-label">A partir de 3 Un:</span>
-                  <span className="terminal-volume-badge">R$ {produto.preco!.toFixed(2)}</span>
+                  <span className="terminal-volume-label" style={{ color: t.textMuted }}>A partir de 3 Un:</span>
+                  <span className="terminal-volume-badge" style={{ background: t.volumeBadgeBg, color: t.textColor, transition: "background 0.8s ease" }}>
+                    R$ {produto.preco!.toFixed(2)}
+                  </span>
                 </motion.div>
               )}
             </motion.div>
 
-            {/* Suggestions */}
             {allSugestoes.length > 0 && (
               <motion.div className="terminal-suggestions" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.6 }}>
-                <h2 className="terminal-suggestions-title">💡 Você também pode gostar</h2>
+                <h2 className="terminal-suggestions-title" style={{ color: t.textMuted }}>💡 Você também pode gostar</h2>
                 <div className="terminal-suggestions-grid">
                   {allSugestoes.map((s, i) => (
                     <motion.button
                       key={s.ean}
                       className="terminal-suggestion-card"
+                      style={{
+                        background: t.suggestionBg,
+                        borderColor: t.suggestionBorder,
+                        transition: "background 0.8s ease, border-color 0.8s ease",
+                      }}
                       initial={{ opacity: 0, y: 15 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: 0.7 + i * 0.08 }}
@@ -576,8 +768,8 @@ export default function TerminalPage() {
                       ) : (
                         <div className="terminal-suggestion-noimg"><Barcode className="w-6 h-6 text-white/20" /></div>
                       )}
-                      <p className="terminal-suggestion-name">{s.nome_curto || s.nome}</p>
-                      {s.preco && <p className="terminal-suggestion-price">R$ {s.preco.toFixed(2)}</p>}
+                      <p className="terminal-suggestion-name" style={{ color: t.textMuted }}>{s.nome_curto || s.nome}</p>
+                      {s.preco && <p className="terminal-suggestion-price" style={{ color: t.textColor }}>R$ {s.preco.toFixed(2)}</p>}
                     </motion.button>
                   ))}
                 </div>
@@ -587,7 +779,6 @@ export default function TerminalPage() {
         )}
       </AnimatePresence>
 
-      {/* Idle — slideshow */}
       <AnimatePresence>
         {isIdle && (
           <>
@@ -606,7 +797,7 @@ export default function TerminalPage() {
                         onEnded={() => { if (idx === currentMediaIndex) setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length); }}
                         ref={(el) => {
                           if (!el) return;
-                          if (idx === currentMediaIndex) { el.play().catch(() => {}); } else { el.pause(); el.currentTime = 0; }
+                          if (idx === currentMediaIndex) { el.play().catch(() => { }); } else { el.pause(); el.currentTime = 0; }
                         }}
                       />
                     )}
