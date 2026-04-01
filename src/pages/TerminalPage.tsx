@@ -289,7 +289,7 @@ export default function TerminalPage() {
         speakPrice(prod.preco, prod.nome_curto || prod.nome);
       }
 
-      fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=3`)
+      fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=${maxSugestoes || 3}`)
         .then(r => r.json())
         .then(d => setSugestoes(d.sugestoes))
         .catch(() => {});
