@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
-import { Upload, Trash2, GripVertical, Image, Video, ExternalLink, Settings, Volume2, Bell } from "lucide-react";
+import { Upload, Trash2, GripVertical, Image, Video, ExternalLink, Settings, Volume2, Bell, Paintbrush, LayoutGrid } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -44,6 +46,28 @@ const SUGGESTION_TYPES = [
   { value: "todas", label: "Todas (misto)" },
 ];
 
+const LAYOUTS = [
+  {
+    value: "classico",
+    label: "Clássico",
+    desc: "Imagem grande no topo, nome, preço e sugestões abaixo",
+    config: { font_nome: 24, font_preco: 72, img_size: 280, max_sugestoes: 3 },
+  },
+  {
+    value: "compacto",
+    label: "Compacto",
+    desc: "Imagem menor, mais sugestões visíveis na tela",
+    config: { font_nome: 20, font_preco: 56, img_size: 200, max_sugestoes: 6 },
+  },
+  {
+    value: "vitrine",
+    label: "Vitrine",
+    desc: "Imagem enorme, preço destacado, sem sugestões",
+    config: { font_nome: 28, font_preco: 96, img_size: 360, max_sugestoes: 0 },
+  },
+];
+
+// ─── Sortable media item ───
 function SortableMediaItem({
   item,
   onToggle,
@@ -123,45 +147,61 @@ function SortableMediaItem({
   );
 }
 
+// ─── Config helper ───
+const saveConfig = async (chave: string, valor: string) => {
+  const { error } = await supabase
+    .from("terminal_config")
+    .upsert({ chave, valor, atualizado_em: new Date().toISOString() }, { onConflict: "chave" });
+  if (error) toast.error("Erro ao salvar");
+  else toast.success("Configuração salva");
+};
+
+// ─── Main page ───
 export default function TerminalMediaPage() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+
+  // Configs
   const [tipoSugestao, setTipoSugestao] = useState("complementares");
   const [beepEnabled, setBeepEnabled] = useState(true);
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [layout, setLayout] = useState("classico");
+  const [fontNome, setFontNome] = useState(24);
+  const [fontPreco, setFontPreco] = useState(72);
+  const [imgSize, setImgSize] = useState(280);
+  const [maxSugestoes, setMaxSugestoes] = useState(3);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  // Fetch all configs
   useEffect(() => {
     const fetchConfig = async () => {
       const { data } = await supabase
         .from("terminal_config")
-        .select("chave, valor")
-        .in("chave", ["tipo_sugestao", "beep_enabled", "tts_enabled"]);
+        .select("chave, valor");
       if (data) {
         for (const row of data) {
-          if (row.chave === "tipo_sugestao") setTipoSugestao(row.valor);
-          if (row.chave === "beep_enabled") setBeepEnabled(row.valor !== "false");
-          if (row.chave === "tts_enabled") setTtsEnabled(row.valor !== "false");
+          switch (row.chave) {
+            case "tipo_sugestao": setTipoSugestao(row.valor); break;
+            case "beep_enabled": setBeepEnabled(row.valor !== "false"); break;
+            case "tts_enabled": setTtsEnabled(row.valor !== "false"); break;
+            case "layout": setLayout(row.valor); break;
+            case "font_nome": setFontNome(Number(row.valor) || 24); break;
+            case "font_preco": setFontPreco(Number(row.valor) || 72); break;
+            case "img_size": setImgSize(Number(row.valor) || 280); break;
+            case "max_sugestoes": setMaxSugestoes(Number(row.valor) ?? 3); break;
+          }
         }
       }
     };
     fetchConfig();
   }, []);
 
-  const saveTipoSugestao = async (value: string) => {
-    setTipoSugestao(value);
-    const { error } = await supabase
-      .from("terminal_config")
-      .upsert({ chave: "tipo_sugestao", valor: value, atualizado_em: new Date().toISOString() }, { onConflict: "chave" });
-    if (error) toast.error("Erro ao salvar configuração");
-    else toast.success("Tipo de sugestão salvo");
-  };
-
+  // Media query
   const { data: mediaList = [], isLoading } = useQuery({
     queryKey: ["terminal-media"],
     queryFn: async () => {
@@ -211,10 +251,8 @@ export default function TerminalMediaPage() {
     const newIndex = mediaList.findIndex((m) => m.id === over.id);
     const reordered = arrayMove(mediaList, oldIndex, newIndex);
 
-    // Optimistic update
     queryClient.setQueryData(["terminal-media"], reordered);
 
-    // Persist new order
     const updates = reordered.map((item, i) =>
       supabase.from("terminal_media").update({ ordem: i }).eq("id", item.id)
     );
@@ -270,13 +308,53 @@ export default function TerminalMediaPage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const applyLayout = async (layoutKey: string) => {
+    setLayout(layoutKey);
+    const preset = LAYOUTS.find(l => l.value === layoutKey);
+    if (!preset) return;
+    const { font_nome, font_preco, img_size, max_sugestoes } = preset.config;
+    setFontNome(font_nome);
+    setFontPreco(font_preco);
+    setImgSize(img_size);
+    setMaxSugestoes(max_sugestoes);
+
+    // Save all at once
+    const configs = [
+      { chave: "layout", valor: layoutKey },
+      { chave: "font_nome", valor: String(font_nome) },
+      { chave: "font_preco", valor: String(font_preco) },
+      { chave: "img_size", valor: String(img_size) },
+      { chave: "max_sugestoes", valor: String(max_sugestoes) },
+    ];
+    for (const c of configs) {
+      await supabase.from("terminal_config").upsert(
+        { ...c, atualizado_em: new Date().toISOString() },
+        { onConflict: "chave" }
+      );
+    }
+    toast.success(`Layout "${preset.label}" aplicado`);
+  };
+
+  const saveAppearanceValue = async (chave: string, valor: number, setter: (v: number) => void) => {
+    setter(valor);
+    setLayout("personalizado");
+    await supabase.from("terminal_config").upsert(
+      { chave, valor: String(valor), atualizado_em: new Date().toISOString() },
+      { onConflict: "chave" }
+    );
+    await supabase.from("terminal_config").upsert(
+      { chave: "layout", valor: "personalizado", atualizado_em: new Date().toISOString() },
+      { onConflict: "chave" }
+    );
+  };
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-display text-3xl font-bold tracking-tight">Mídia do Terminal</h1>
+          <h1 className="font-display text-3xl font-bold tracking-tight">Terminal</h1>
           <p className="text-muted-foreground mt-1">
-            Imagens e vídeos exibidos nos terminais quando não há consulta ativa
+            Gerencie mídias, aparência e configurações do terminal
           </p>
         </div>
         <div className="flex gap-2">
@@ -286,57 +364,7 @@ export default function TerminalMediaPage() {
               Ver Terminal
             </Button>
           </a>
-          <Button onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            <Upload className="w-4 h-4 mr-2" />
-            {uploading ? "Enviando..." : "Upload"}
-          </Button>
         </div>
-      </div>
-
-      <div className="stat-card !p-4 flex items-center gap-4">
-        <Settings className="w-5 h-5 text-muted-foreground shrink-0" />
-        <div className="flex-1">
-          <p className="text-sm font-medium">Tipo de Sugestão no Terminal</p>
-          <p className="text-xs text-muted-foreground">Define quais sugestões aparecem ao consultar um produto</p>
-        </div>
-        <Select value={tipoSugestao} onValueChange={saveTipoSugestao}>
-          <SelectTrigger className="w-52">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {SUGGESTION_TYPES.map(t => (
-              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="stat-card !p-4 flex items-center gap-4">
-        <Bell className="w-5 h-5 text-muted-foreground shrink-0" />
-        <div className="flex-1">
-          <p className="text-sm font-medium">Bipe ao Consultar</p>
-          <p className="text-xs text-muted-foreground">Toca um som ao bipar um código de barras</p>
-        </div>
-        <Switch checked={beepEnabled} onCheckedChange={async (checked) => {
-          setBeepEnabled(checked);
-          const { error } = await supabase.from("terminal_config")
-            .upsert({ chave: "beep_enabled", valor: String(checked), atualizado_em: new Date().toISOString() }, { onConflict: "chave" });
-          if (error) toast.error("Erro ao salvar"); else toast.success("Configuração salva");
-        }} />
-      </div>
-
-      <div className="stat-card !p-4 flex items-center gap-4">
-        <Volume2 className="w-5 h-5 text-muted-foreground shrink-0" />
-        <div className="flex-1">
-          <p className="text-sm font-medium">Falar Preço (TTS)</p>
-          <p className="text-xs text-muted-foreground">Lê o nome e preço do produto em voz alta</p>
-        </div>
-        <Switch checked={ttsEnabled} onCheckedChange={async (checked) => {
-          setTtsEnabled(checked);
-          const { error } = await supabase.from("terminal_config")
-            .upsert({ chave: "tts_enabled", valor: String(checked), atualizado_em: new Date().toISOString() }, { onConflict: "chave" });
-          if (error) toast.error("Erro ao salvar"); else toast.success("Configuração salva");
-        }} />
       </div>
 
       <input
@@ -348,37 +376,240 @@ export default function TerminalMediaPage() {
         onChange={handleUpload}
       />
 
-      {isLoading ? (
-        <div className="text-muted-foreground text-center py-12">Carregando...</div>
-      ) : mediaList.length === 0 ? (
-        <div className="stat-card flex flex-col items-center justify-center py-16 text-center">
-          <Image className="w-16 h-16 text-muted-foreground/30 mb-4" />
-          <p className="text-muted-foreground text-lg">Nenhuma mídia cadastrada</p>
-          <p className="text-muted-foreground/60 text-sm mt-1">
-            Faça upload de imagens ou vídeos para exibir nos terminais
-          </p>
-          <Button className="mt-4" onClick={() => fileInputRef.current?.click()}>
-            <Upload className="w-4 h-4 mr-2" />
-            Fazer Upload
-          </Button>
-        </div>
-      ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={mediaList.map(m => m.id)} strategy={verticalListSortingStrategy}>
-            <div className="space-y-2">
-              {mediaList.map((item) => (
-                <SortableMediaItem
-                  key={item.id}
-                  item={item}
-                  onToggle={(id, ativo) => toggleMutation.mutate({ id, ativo })}
-                  onDelete={(item) => deleteMutation.mutate(item)}
-                  onDurationChange={(id, dur) => updateDuration.mutate({ id, duracao_segundos: dur })}
-                />
+      <Tabs defaultValue="midia" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="midia" className="gap-2">
+            <Image className="w-4 h-4" />
+            Mídia
+          </TabsTrigger>
+          <TabsTrigger value="aparencia" className="gap-2">
+            <Paintbrush className="w-4 h-4" />
+            Aparência
+          </TabsTrigger>
+          <TabsTrigger value="config" className="gap-2">
+            <Settings className="w-4 h-4" />
+            Configurações
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ═══ TAB: Mídia ═══ */}
+        <TabsContent value="midia" className="space-y-4">
+          <div className="flex justify-end">
+            <Button onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+              <Upload className="w-4 h-4 mr-2" />
+              {uploading ? "Enviando..." : "Upload"}
+            </Button>
+          </div>
+
+          {isLoading ? (
+            <div className="text-muted-foreground text-center py-12">Carregando...</div>
+          ) : mediaList.length === 0 ? (
+            <div className="stat-card flex flex-col items-center justify-center py-16 text-center">
+              <Image className="w-16 h-16 text-muted-foreground/30 mb-4" />
+              <p className="text-muted-foreground text-lg">Nenhuma mídia cadastrada</p>
+              <p className="text-muted-foreground/60 text-sm mt-1">
+                Faça upload de imagens ou vídeos para exibir nos terminais
+              </p>
+              <Button className="mt-4" onClick={() => fileInputRef.current?.click()}>
+                <Upload className="w-4 h-4 mr-2" />
+                Fazer Upload
+              </Button>
+            </div>
+          ) : (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={mediaList.map(m => m.id)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-2">
+                  {mediaList.map((item) => (
+                    <SortableMediaItem
+                      key={item.id}
+                      item={item}
+                      onToggle={(id, ativo) => toggleMutation.mutate({ id, ativo })}
+                      onDelete={(item) => deleteMutation.mutate(item)}
+                      onDurationChange={(id, dur) => updateDuration.mutate({ id, duracao_segundos: dur })}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          )}
+        </TabsContent>
+
+        {/* ═══ TAB: Aparência ═══ */}
+        <TabsContent value="aparencia" className="space-y-4">
+          {/* Layout presets */}
+          <div>
+            <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
+              <LayoutGrid className="w-4 h-4" />
+              Layouts Pré-definidos
+            </h3>
+            <div className="grid grid-cols-3 gap-3">
+              {LAYOUTS.map(l => (
+                <button
+                  key={l.value}
+                  onClick={() => applyLayout(l.value)}
+                  className={`stat-card !p-4 text-left transition-all hover:ring-2 hover:ring-primary/30 ${
+                    layout === l.value ? "ring-2 ring-primary" : ""
+                  }`}
+                >
+                  <p className="text-sm font-semibold">{l.label}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{l.desc}</p>
+                  <div className="mt-3 flex gap-2 text-[10px] text-muted-foreground/60">
+                    <span>Nome: {l.config.font_nome}px</span>
+                    <span>•</span>
+                    <span>Preço: {l.config.font_preco}px</span>
+                    <span>•</span>
+                    <span>Sug: {l.config.max_sugestoes}</span>
+                  </div>
+                </button>
               ))}
             </div>
-          </SortableContext>
-        </DndContext>
-      )}
+          </div>
+
+          {/* Custom controls */}
+          <div className="space-y-5 stat-card !p-5">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-medium">Ajuste Fino</h3>
+              {layout !== "personalizado" && (
+                <span className="text-xs text-muted-foreground">Alterar desmarca o layout pré-definido</span>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-muted-foreground">Tamanho do Nome</label>
+                <span className="text-xs font-mono text-muted-foreground">{fontNome}px</span>
+              </div>
+              <Slider
+                min={14}
+                max={40}
+                step={1}
+                value={[fontNome]}
+                onValueCommit={(v) => saveAppearanceValue("font_nome", v[0], setFontNome)}
+                onValueChange={(v) => setFontNome(v[0])}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-muted-foreground">Tamanho do Preço</label>
+                <span className="text-xs font-mono text-muted-foreground">{fontPreco}px</span>
+              </div>
+              <Slider
+                min={32}
+                max={120}
+                step={2}
+                value={[fontPreco]}
+                onValueCommit={(v) => saveAppearanceValue("font_preco", v[0], setFontPreco)}
+                onValueChange={(v) => setFontPreco(v[0])}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-muted-foreground">Tamanho da Imagem</label>
+                <span className="text-xs font-mono text-muted-foreground">{imgSize}px</span>
+              </div>
+              <Slider
+                min={120}
+                max={500}
+                step={10}
+                value={[imgSize]}
+                onValueCommit={(v) => saveAppearanceValue("img_size", v[0], setImgSize)}
+                onValueChange={(v) => setImgSize(v[0])}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-muted-foreground">Qtd. de Sugestões</label>
+                <span className="text-xs font-mono text-muted-foreground">{maxSugestoes}</span>
+              </div>
+              <Slider
+                min={0}
+                max={8}
+                step={1}
+                value={[maxSugestoes]}
+                onValueCommit={(v) => saveAppearanceValue("max_sugestoes", v[0], setMaxSugestoes)}
+                onValueChange={(v) => setMaxSugestoes(v[0])}
+              />
+            </div>
+          </div>
+
+          {/* Live preview mockup */}
+          <div className="stat-card !p-5">
+            <p className="text-xs text-muted-foreground mb-3">Pré-visualização</p>
+            <div className="bg-black/80 rounded-xl p-6 flex flex-col items-center gap-3 text-white">
+              <div
+                className="rounded-lg bg-white/10 flex items-center justify-center"
+                style={{ width: Math.min(imgSize, 200), height: Math.min(imgSize, 200) }}
+              >
+                <Image className="w-8 h-8 text-white/30" />
+              </div>
+              <p style={{ fontSize: Math.min(fontNome, 20) }} className="font-semibold text-center">
+                Nome do Produto
+              </p>
+              <p style={{ fontSize: Math.min(fontPreco, 48) }} className="font-bold text-emerald-400">
+                R$ 12,<span className="text-[0.5em]">99</span>
+              </p>
+              {maxSugestoes > 0 && (
+                <div className="flex gap-2 mt-2">
+                  {Array.from({ length: Math.min(maxSugestoes, 4) }).map((_, i) => (
+                    <div key={i} className="w-12 h-12 rounded bg-white/10" />
+                  ))}
+                  {maxSugestoes > 4 && (
+                    <span className="text-xs text-white/40 self-center">+{maxSugestoes - 4}</span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* ═══ TAB: Configurações ═══ */}
+        <TabsContent value="config" className="space-y-4">
+          <div className="stat-card !p-4 flex items-center gap-4">
+            <Settings className="w-5 h-5 text-muted-foreground shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium">Tipo de Sugestão</p>
+              <p className="text-xs text-muted-foreground">Define quais sugestões aparecem ao consultar</p>
+            </div>
+            <Select value={tipoSugestao} onValueChange={(v) => { setTipoSugestao(v); saveConfig("tipo_sugestao", v); }}>
+              <SelectTrigger className="w-52">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SUGGESTION_TYPES.map(t => (
+                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="stat-card !p-4 flex items-center gap-4">
+            <Bell className="w-5 h-5 text-muted-foreground shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium">Bipe ao Consultar</p>
+              <p className="text-xs text-muted-foreground">Toca um som ao bipar um código de barras</p>
+            </div>
+            <Switch checked={beepEnabled} onCheckedChange={(checked) => {
+              setBeepEnabled(checked);
+              saveConfig("beep_enabled", String(checked));
+            }} />
+          </div>
+
+          <div className="stat-card !p-4 flex items-center gap-4">
+            <Volume2 className="w-5 h-5 text-muted-foreground shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium">Falar Preço (TTS)</p>
+              <p className="text-xs text-muted-foreground">Lê o nome e preço do produto em voz alta</p>
+            </div>
+            <Switch checked={ttsEnabled} onCheckedChange={(checked) => {
+              setTtsEnabled(checked);
+              saveConfig("tts_enabled", String(checked));
+            }} />
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -49,6 +49,11 @@ export default function TerminalPage() {
   const [beepEnabled, setBeepEnabled] = useState(true);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [inputFocused, setInputFocused] = useState(false);
+  // Appearance configs
+  const [fontNome, setFontNome] = useState(24);
+  const [fontPreco, setFontPreco] = useState(72);
+  const [imgSize, setImgSize] = useState(280);
+  const [maxSugestoes, setMaxSugestoes] = useState(3);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -102,13 +107,18 @@ export default function TerminalPage() {
     const fetchConfig = async () => {
       const { data } = await supabase
         .from("terminal_config")
-        .select("chave, valor")
-        .in("chave", ["tipo_sugestao", "beep_enabled", "tts_enabled"]);
+        .select("chave, valor");
       if (data) {
         for (const row of data) {
-          if (row.chave === "tipo_sugestao") setTipoSugestao(row.valor);
-          if (row.chave === "beep_enabled") setBeepEnabled(row.valor !== "false");
-          if (row.chave === "tts_enabled") setTtsEnabled(row.valor !== "false");
+          switch (row.chave) {
+            case "tipo_sugestao": setTipoSugestao(row.valor); break;
+            case "beep_enabled": setBeepEnabled(row.valor !== "false"); break;
+            case "tts_enabled": setTtsEnabled(row.valor !== "false"); break;
+            case "font_nome": setFontNome(Number(row.valor) || 24); break;
+            case "font_preco": setFontPreco(Number(row.valor) || 72); break;
+            case "img_size": setImgSize(Number(row.valor) || 280); break;
+            case "max_sugestoes": setMaxSugestoes(Number(row.valor) ?? 3); break;
+          }
         }
       }
     };
@@ -279,7 +289,7 @@ export default function TerminalPage() {
         speakPrice(prod.preco, prod.nome_curto || prod.nome);
       }
 
-      fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=3`)
+      fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=${maxSugestoes || 3}`)
         .then(r => r.json())
         .then(d => setSugestoes(d.sugestoes))
         .catch(() => {});
@@ -311,7 +321,7 @@ export default function TerminalPage() {
       perfil: sugestoes.perfil,
       todas: [...sugestoes.complementares, ...sugestoes.mesma_marca, ...sugestoes.perfil],
     };
-    return (map[tipoSugestao] || map.todas).slice(0, 3);
+    return (map[tipoSugestao] || map.todas).slice(0, maxSugestoes);
   };
 
   const allSugestoes = getSugestoes();
@@ -410,21 +420,23 @@ export default function TerminalPage() {
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.3 }}
           >
-            {/* Image on top — large */}
+            {/* Image on top — dynamic size */}
             <motion.div
               className="terminal-product-image-top"
               initial={{ scale: 0.5, opacity: 0, y: 40 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.1, type: "spring", stiffness: 200, damping: 20 }}
+              style={{ width: imgSize, height: imgSize }}
             >
               {produto.imagem_url_vtex ? (
                 <img
                   src={produto.imagem_url_vtex}
                   alt={produto.nome}
                   className="terminal-product-image-large"
+                  style={{ maxWidth: imgSize, maxHeight: imgSize }}
                 />
               ) : (
-                <div className="terminal-no-image-large">
+                <div className="terminal-no-image-large" style={{ width: imgSize, height: imgSize }}>
                   <Barcode className="w-20 h-20 text-white/30" />
                 </div>
               )}
@@ -437,7 +449,7 @@ export default function TerminalPage() {
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.4, delay: 0.25, ease: "easeOut" }}
             >
-              <h1 className="terminal-product-name">
+              <h1 className="terminal-product-name" style={{ fontSize: fontNome }}>
                 {produto.nome_curto || produto.nome}
               </h1>
               {produto.marca && (
@@ -457,17 +469,18 @@ export default function TerminalPage() {
                   De R$ {produto.preco_lista!.toFixed(2)}
                 </p>
               )}
-              <div className="terminal-price">
+              <div className="terminal-price" style={{ fontSize: fontPreco }}>
                 <span className="terminal-price-symbol">R$</span>
                 <motion.span
                   className="terminal-price-reais"
+                  style={{ fontSize: fontPreco }}
                   initial={{ scale: 0.6, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   transition={{ duration: 0.4, delay: 0.45, type: "spring", stiffness: 300 }}
                 >
                   {formatPrice(produto.preco ?? 0).reais}
                 </motion.span>
-                <span className="terminal-price-centavos">
+                <span className="terminal-price-centavos" style={{ fontSize: fontPreco * 0.45 }}>
                   ,{formatPrice(produto.preco ?? 0).centavos}
                 </span>
               </div>
