@@ -230,74 +230,89 @@ export default function TerminalPage() {
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.3 }}
           >
-            {/* Product name banner */}
-            <motion.div
-              className="terminal-name-banner"
-              initial={{ x: -80, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ duration: 0.4, ease: "easeOut" }}
-            >
-              <h1 className="terminal-product-name">
-                {produto.nome_curto || produto.nome}
-              </h1>
-              {produto.marca && (
-                <p className="terminal-product-brand">{produto.marca}</p>
-              )}
-            </motion.div>
-
-            {/* Product image with pedestal */}
-            <motion.div
-              className="terminal-image-container"
-              initial={{ scale: 0.5, opacity: 0, y: 40 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.15, type: "spring", stiffness: 200, damping: 20 }}
-            >
-              {produto.imagem_url_vtex ? (
-                <img
-                  src={produto.imagem_url_vtex}
-                  alt={produto.nome}
-                  className="terminal-product-image"
-                />
-              ) : (
-                <div className="terminal-no-image">
-                  <Barcode className="w-16 h-16 text-white/30" />
-                </div>
-              )}
-              <div className="terminal-pedestal" />
-            </motion.div>
-
-            {/* Price */}
-            <motion.div
-              className="terminal-price-area"
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: 0.35 }}
-            >
-              {hasDiscount && (
-                <p className="terminal-old-price">
-                  De R$ {produto.preco_lista!.toFixed(2)}
-                </p>
-              )}
-              <div className="terminal-price">
-                <span className="terminal-price-symbol">R$</span>
-                <motion.span
-                  className="terminal-price-reais"
-                  initial={{ scale: 0.6, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ duration: 0.4, delay: 0.45, type: "spring", stiffness: 300 }}
+            {/* Main content: splits horizontally in landscape */}
+            <div className="terminal-product-main">
+              {/* Left side: name + price */}
+              <div className="terminal-product-left">
+                <motion.div
+                  className="terminal-name-banner"
+                  initial={{ x: -80, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  transition={{ duration: 0.4, ease: "easeOut" }}
                 >
-                  {formatPrice(produto.preco ?? 0).reais}
-                </motion.span>
-                <span className="terminal-price-centavos">
-                  ,{formatPrice(produto.preco ?? 0).centavos}
-                </span>
+                  <h1 className="terminal-product-name">
+                    {produto.nome_curto || produto.nome}
+                  </h1>
+                  {produto.marca && (
+                    <p className="terminal-product-brand">{produto.marca}</p>
+                  )}
+                </motion.div>
+
+                <motion.div
+                  className="terminal-price-area"
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: 0.35 }}
+                >
+                  {hasDiscount && (
+                    <p className="terminal-old-price">
+                      De R$ {produto.preco_lista!.toFixed(2)}
+                    </p>
+                  )}
+                  <div className="terminal-price">
+                    <span className="terminal-price-symbol">R$</span>
+                    <motion.span
+                      className="terminal-price-reais"
+                      initial={{ scale: 0.6, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ duration: 0.4, delay: 0.45, type: "spring", stiffness: 300 }}
+                    >
+                      {formatPrice(produto.preco ?? 0).reais}
+                    </motion.span>
+                    <span className="terminal-price-centavos">
+                      ,{formatPrice(produto.preco ?? 0).centavos}
+                    </span>
+                  </div>
+                  {produto.unidade_medida && (
+                    <p className="terminal-unit">{produto.unidade_medida}</p>
+                  )}
+                  {hasDiscount && (
+                    <motion.div
+                      className="terminal-volume-price"
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.55 }}
+                    >
+                      <span className="terminal-volume-label">A partir de 3 Un:</span>
+                      <span className="terminal-volume-badge">
+                        R$ {produto.preco!.toFixed(2)}
+                      </span>
+                    </motion.div>
+                  )}
+                </motion.div>
               </div>
-              {produto.unidade_medida && (
-                <p className="terminal-unit">
-                  {produto.unidade_medida}
-                </p>
-              )}
-            </motion.div>
+
+              {/* Right side: image + pedestal */}
+              <motion.div
+                className="terminal-product-right"
+                initial={{ scale: 0.5, opacity: 0, y: 40 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.15, type: "spring", stiffness: 200, damping: 20 }}
+              >
+                {produto.imagem_url_vtex ? (
+                  <img
+                    src={produto.imagem_url_vtex}
+                    alt={produto.nome}
+                    className="terminal-product-image"
+                  />
+                ) : (
+                  <div className="terminal-no-image">
+                    <Barcode className="w-16 h-16 text-white/30" />
+                  </div>
+                )}
+                <div className="terminal-pedestal" />
+              </motion.div>
+            </div>
 
             {/* Suggestions */}
             {allSugestoes.length > 0 && (

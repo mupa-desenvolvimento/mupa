@@ -242,6 +242,18 @@
     @apply relative z-10 flex flex-col items-center w-full max-w-md mx-auto px-4 pb-8 flex-1;
   }
 
+  .terminal-product-main {
+    @apply flex flex-col items-center w-full;
+  }
+
+  .terminal-product-left {
+    @apply flex flex-col items-center w-full;
+  }
+
+  .terminal-product-right {
+    @apply relative flex flex-col items-center mt-6;
+  }
+
   .terminal-name-banner {
     @apply w-full mt-6 px-5 py-3 rounded-xl;
     background: linear-gradient(135deg, #c0392b, #a93226);
@@ -254,10 +266,6 @@
 
   .terminal-product-brand {
     @apply text-white/70 text-sm mt-0.5 uppercase tracking-wider;
-  }
-
-  .terminal-image-container {
-    @apply relative flex flex-col items-center mt-6;
   }
 
   .terminal-product-image {
@@ -303,6 +311,19 @@
     @apply text-white/40 text-sm mt-1;
   }
 
+  .terminal-volume-price {
+    @apply flex items-center justify-center gap-2 mt-3;
+  }
+
+  .terminal-volume-label {
+    @apply text-white/50 text-sm;
+  }
+
+  .terminal-volume-badge {
+    @apply px-3 py-1 rounded-lg text-white font-bold text-lg;
+    background: linear-gradient(135deg, #c0392b, #96281b);
+  }
+
   .terminal-suggestions {
     @apply w-full mt-8;
   }
@@ -343,5 +364,85 @@
 
   .terminal-idle {
     @apply relative z-10 flex flex-col items-center justify-center flex-1 mt-20;
+  }
+
+  /* ===== LANDSCAPE MODE (width > height) ===== */
+  @media (orientation: landscape) and (min-width: 640px) {
+    .terminal-product-area {
+      @apply max-w-5xl flex-row flex-wrap justify-center items-start pt-2;
+    }
+
+    .terminal-product-main {
+      @apply flex-row items-center flex-1 gap-4;
+    }
+
+    .terminal-product-left {
+      @apply items-start flex-1;
+    }
+
+    .terminal-product-right {
+      @apply mt-0 flex-1;
+    }
+
+    .terminal-name-banner {
+      @apply mt-4 rounded-xl;
+    }
+
+    .terminal-product-name {
+      @apply text-3xl;
+    }
+
+    .terminal-product-brand {
+      @apply text-base;
+    }
+
+    .terminal-price-area {
+      @apply text-left mt-6;
+    }
+
+    .terminal-price {
+      @apply justify-start;
+    }
+
+    .terminal-price-reais {
+      @apply text-9xl;
+    }
+
+    .terminal-price-symbol {
+      @apply text-3xl mt-3;
+    }
+
+    .terminal-price-centavos {
+      @apply text-5xl;
+    }
+
+    .terminal-volume-price {
+      @apply justify-start;
+    }
+
+    .terminal-product-image {
+      @apply w-64 h-64;
+    }
+
+    .terminal-pedestal {
+      @apply w-72;
+    }
+
+    .terminal-suggestions {
+      @apply mt-4 w-full;
+      flex-basis: 100%;
+    }
+
+    .terminal-suggestions-grid {
+      @apply grid-cols-6 gap-3;
+    }
+
+    .terminal-suggestion-img {
+      @apply w-16 h-16;
+    }
+
+    .terminal-search {
+      @apply mt-3;
+    }
   }
 }
