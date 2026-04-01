@@ -86,6 +86,14 @@ const FALLBACK_THEME: ProductTheme = {
   suggestionBg: "rgba(0,0,0,0.03)",
   suggestionBorder: "rgba(0,0,0,0.06)",
   volumeBadgeBg: "linear-gradient(135deg, rgb(192,57,43), rgb(150,40,27))",
+  containerBg: "rgb(240,220,216)",
+  containerGradient: "linear-gradient(180deg, rgba(192,57,43,0.18) 0%, rgba(192,57,43,0.10) 100%)",
+  containerTextColor: "#1a1a1a",
+  containerTextMuted: "rgba(0,0,0,0.5)",
+  priceContainerBg: "rgb(142,68,173)",
+  priceContainerGradient: "linear-gradient(135deg, rgb(142,68,173), rgb(110,50,140))",
+  priceTextColor: "#ffffff",
+  priceTextMuted: "rgba(255,255,255,0.8)",
 };
 
 interface RGB { r: number; g: number; b: number; }
