@@ -5,6 +5,7 @@ import {
   RefreshCw,
   Image,
   FileText,
+  Monitor,
   Zap,
   LogOut,
 } from "lucide-react";
@@ -16,6 +17,7 @@ const navItems = [
   { to: "/sync", icon: RefreshCw, label: "Sincronização" },
   { to: "/imagens", icon: Image, label: "Imagens" },
   { to: "/docs", icon: FileText, label: "API Docs" },
+  { to: "/terminal-media", icon: Monitor, label: "Mídia Terminal" },
 ];
 
 export default function AppSidebar() {
