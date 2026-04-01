@@ -45,6 +45,8 @@ interface ProductTheme {
   cardColor: string;
   bannerGradient: string;
   bannerShadow: string;
+  bannerTextColor: string;
+  bannerTextMuted: string;
   blobColors: string[];
   waveColors: string[];
   suggestionBg: string;
@@ -63,6 +65,8 @@ const FALLBACK_THEME: ProductTheme = {
   cardColor: "rgba(0,0,0,0.04)",
   bannerGradient: "linear-gradient(135deg, rgb(192,57,43), rgb(169,50,38))",
   bannerShadow: "0 8px 30px rgba(192,57,43,0.25)",
+  bannerTextColor: "#ffffff",
+  bannerTextMuted: "rgba(255,255,255,0.8)",
   blobColors: [
     "radial-gradient(circle, rgba(192,57,43,0.15), transparent 70%)",
     "radial-gradient(circle, rgba(142,68,173,0.1), transparent 70%)",
@@ -260,6 +264,8 @@ function _generateTheme(colors: RGB[]): ProductTheme {
     textColor, textMuted, cardColor,
     bannerGradient: `linear-gradient(135deg, ${rgbStr(accent)}, ${rgbStr(bannerDark)})`,
     bannerShadow: `0 8px 30px ${rgbaStr(accent, 0.25)}`,
+    bannerTextColor: luminance(accent) > 0.18 ? "#1a1a1a" : "#ffffff",
+    bannerTextMuted: luminance(accent) > 0.18 ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.8)",
     blobColors: [
       `radial-gradient(circle, ${rgbaStr(primary, 0.15)}, transparent 70%)`,
       `radial-gradient(circle, ${rgbaStr(secondary, 0.12)}, transparent 70%)`,
@@ -321,6 +327,8 @@ export default function TerminalPage() {
         background: [corFundo, `${corFundo}ee`, corFundo],
         bannerGradient: `linear-gradient(135deg, ${corDescricao}, ${corDescricao}cc)`,
         bannerShadow: `0 8px 30px ${corDescricao}66`,
+        bannerTextColor: (() => { const m = corDescricao.match(/\d+/g); if (m) { const c = { r: +m[0], g: +m[1], b: +m[2] }; return luminance(c) > 0.18 ? "#1a1a1a" : "#ffffff"; } return "#ffffff"; })(),
+        bannerTextMuted: (() => { const m = corDescricao.match(/\d+/g); if (m) { const c = { r: +m[0], g: +m[1], b: +m[2] }; return luminance(c) > 0.18 ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.8)"; } return "rgba(255,255,255,0.8)"; })(),
         textColor: corPreco,
         primary: corDescricao,
         accent: corDescricao,
@@ -710,10 +718,10 @@ export default function TerminalPage() {
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.4, delay: 0.25, ease: "easeOut" }}
             >
-              <h1 className="terminal-product-name" style={{ fontSize: fontNome, color: t.textColor }}>
+              <h1 className="terminal-product-name" style={{ fontSize: fontNome, color: t.bannerTextColor, transition: "color 0.8s ease" }}>
                 {produto.nome_curto || produto.nome}
               </h1>
-              {produto.marca && <p className="terminal-product-brand" style={{ color: t.textMuted }}>{produto.marca}</p>}
+              {produto.marca && <p className="terminal-product-brand" style={{ color: t.bannerTextMuted, transition: "color 0.8s ease" }}>{produto.marca}</p>}
             </motion.div>
 
             <motion.div className="terminal-price-area" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.35 }}>
