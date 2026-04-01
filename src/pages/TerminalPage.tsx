@@ -52,6 +52,16 @@ interface ProductTheme {
   suggestionBg: string;
   suggestionBorder: string;
   volumeBadgeBg: string;
+  // Main colored container
+  containerBg: string;
+  containerGradient: string;
+  containerTextColor: string;
+  containerTextMuted: string;
+  // Price sub-container (secondary color)
+  priceContainerBg: string;
+  priceContainerGradient: string;
+  priceTextColor: string;
+  priceTextMuted: string;
 }
 
 const FALLBACK_THEME: ProductTheme = {
@@ -76,6 +86,14 @@ const FALLBACK_THEME: ProductTheme = {
   suggestionBg: "rgba(0,0,0,0.03)",
   suggestionBorder: "rgba(0,0,0,0.06)",
   volumeBadgeBg: "linear-gradient(135deg, rgb(192,57,43), rgb(150,40,27))",
+  containerBg: "rgb(240,220,216)",
+  containerGradient: "linear-gradient(180deg, rgba(192,57,43,0.18) 0%, rgba(192,57,43,0.10) 100%)",
+  containerTextColor: "#1a1a1a",
+  containerTextMuted: "rgba(0,0,0,0.5)",
+  priceContainerBg: "rgb(142,68,173)",
+  priceContainerGradient: "linear-gradient(135deg, rgb(142,68,173), rgb(110,50,140))",
+  priceTextColor: "#ffffff",
+  priceTextMuted: "rgba(255,255,255,0.8)",
 };
 
 interface RGB { r: number; g: number; b: number; }
@@ -258,6 +276,19 @@ function _generateTheme(colors: RGB[]): ProductTheme {
   const bannerDark = darkenRgb(accent, 0.7);
   const cardColor = rgbaStr(primary, 0.05);
 
+  // Main container: lightened primary
+  const containerLight = lightenRgb(primary, 0.72);
+  const containerLighter = lightenRgb(primary, 0.82);
+  const containerLum = luminance(containerLight);
+  const containerTextColor = containerLum > 0.4 ? "#1a1a1a" : "#ffffff";
+  const containerTextMuted = containerLum > 0.4 ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)";
+
+  // Price container: secondary color
+  const secDark = darkenRgb(secondary, 0.75);
+  const priceLum = luminance(secondary);
+  const priceTextColor = priceLum > 0.18 ? "#1a1a1a" : "#ffffff";
+  const priceTextMuted = priceLum > 0.18 ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.75)";
+
   return {
     primary: rgbStr(primary), secondary: rgbStr(secondary), accent: rgbStr(accent), tertiary: rgbStr(tertiary),
     background: [rgbStr(bg1), rgbStr(bg2), rgbStr(bg3)],
@@ -272,9 +303,17 @@ function _generateTheme(colors: RGB[]): ProductTheme {
       `radial-gradient(circle, ${rgbaStr(fourth, 0.1)}, transparent 70%)`,
     ],
     waveColors: [rgbaStr(accent, 0.1), rgbaStr(secondary, 0.07)],
-    suggestionBg: rgbaStr(primary, 0.05),
-    suggestionBorder: rgbaStr(primary, 0.08),
+    suggestionBg: rgbaStr(primary, 0.08),
+    suggestionBorder: rgbaStr(primary, 0.12),
     volumeBadgeBg: `linear-gradient(135deg, ${rgbStr(accent)}, ${rgbStr(darkenRgb(accent, 0.65))})`,
+    containerBg: rgbStr(containerLight),
+    containerGradient: `linear-gradient(180deg, ${rgbStr(containerLight)} 0%, ${rgbStr(containerLighter)} 100%)`,
+    containerTextColor,
+    containerTextMuted,
+    priceContainerBg: rgbStr(secondary),
+    priceContainerGradient: `linear-gradient(135deg, ${rgbStr(secondary)}, ${rgbStr(secDark)})`,
+    priceTextColor,
+    priceTextMuted,
   };
 }
 
@@ -687,147 +726,160 @@ export default function TerminalPage() {
       <AnimatePresence mode="wait">
         {produto && !loading && (
           <motion.div
-            key={produto.ean}
-            className="terminal-product-area"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, y: 20 }}
-            transition={{ duration: 0.3 }}
-          >
-            {/* Product Image */}
-            <motion.div
-              className="terminal-product-image-top"
-              initial={{ scale: 0.5, opacity: 0, y: 40 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1, type: "spring", stiffness: 200, damping: 20 }}
-              style={{ width: imgSize, height: imgSize }}
+              key={produto.ean}
+              className="terminal-product-area"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.3 }}
             >
-              {produto.imagem_url_vtex ? (
-                <img src={produto.imagem_url_vtex} alt={produto.nome} className="terminal-product-image-large"
-                  style={{ maxWidth: imgSize, maxHeight: imgSize }} />
-              ) : (
-                <div className="terminal-no-image-large" style={{ width: imgSize, height: imgSize }}>
-                  <Barcode className="w-20 h-20 text-black/15" />
-                </div>
-              )}
-            </motion.div>
-
-            {/* Product Description - Split: first 3 words bold, rest lighter */}
-            <motion.div
-              className="terminal-description-block"
-              initial={{ x: -80, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ duration: 0.4, delay: 0.25, ease: "easeOut" }}
-            >
-              {(() => {
-                const fullName = produto.nome_curto || produto.nome;
-                const words = fullName.split(/\s+/);
-                const highlight = words.slice(0, 3).join(" ");
-                const rest = words.slice(3).join(" ");
-                return (
-                  <>
-                    <h1 className="terminal-desc-highlight" style={{ fontSize: Math.max(fontNome, 28) }}>
-                      {highlight}
-                    </h1>
-                    {rest && (
-                      <p className="terminal-desc-details" style={{ fontSize: Math.max(fontNome * 0.7, 16) }}>
-                        {rest}
-                      </p>
-                    )}
-                  </>
-                );
-              })()}
-              {produto.marca && (
-                <p className="terminal-desc-brand">{produto.marca}</p>
-              )}
-            </motion.div>
-
-            {/* Price in rounded dynamic-colored container */}
-            <motion.div
-              className="terminal-price-container"
-              style={{
-                background: t.bannerGradient,
-                boxShadow: t.bannerShadow,
-                transition: "background 0.8s ease, box-shadow 0.8s ease",
-              }}
-              initial={{ opacity: 0, y: 30, scale: 0.9 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 0.4, delay: 0.35, type: "spring", stiffness: 250, damping: 22 }}
-            >
-              {hasDiscount && (
-                <p className="terminal-container-old-price" style={{ color: `${t.bannerTextMuted}` }}>
-                  De R$ {produto.preco_lista!.toFixed(2)}
-                </p>
-              )}
-              <div className="terminal-container-price" style={{ color: t.bannerTextColor }}>
-                <span className="terminal-container-price-symbol">R$</span>
-                <motion.span
-                  className="terminal-container-price-reais"
-                  style={{ fontSize: fontPreco, color: t.bannerTextColor }}
-                  initial={{ scale: 0.6, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ duration: 0.4, delay: 0.45, type: "spring", stiffness: 300 }}
-                >
-                  {formatPrice(produto.preco ?? 0).reais}
-                </motion.span>
-                <span className="terminal-container-price-cents" style={{ fontSize: fontPreco * 0.45, color: t.bannerTextColor }}>
-                  ,{formatPrice(produto.preco ?? 0).centavos}
-                </span>
-              </div>
-              {produto.unidade_medida && (
-                <p className="terminal-container-unit" style={{ color: t.bannerTextMuted }}>{produto.unidade_medida}</p>
-              )}
-            </motion.div>
-
-            {/* Bottom accent bar */}
-            {hasDiscount && (
+              {/* Product Image - OUTSIDE the main container */}
               <motion.div
-                className="terminal-promo-strip"
+                className="terminal-product-image-top"
+                initial={{ scale: 0.5, opacity: 0, y: 40 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.1, type: "spring", stiffness: 200, damping: 20 }}
+                style={{ width: imgSize, height: imgSize }}
+              >
+                {produto.imagem_url_vtex ? (
+                  <img src={produto.imagem_url_vtex} alt={produto.nome} className="terminal-product-image-large"
+                    style={{ maxWidth: imgSize, maxHeight: imgSize }} />
+                ) : (
+                  <div className="terminal-no-image-large" style={{ width: imgSize, height: imgSize }}>
+                    <Barcode className="w-20 h-20 text-black/15" />
+                  </div>
+                )}
+              </motion.div>
+
+              {/* MAIN COLORED CONTAINER - wraps description + price + suggestions */}
+              <motion.div
+                className="terminal-main-container"
                 style={{
-                  background: `linear-gradient(90deg, ${t.secondary}, ${t.accent})`,
-                  color: t.bannerTextColor,
+                  background: t.containerGradient,
                   transition: "background 0.8s ease",
                 }}
-                initial={{ opacity: 0, scaleX: 0 }}
-                animate={{ opacity: 1, scaleX: 1 }}
-                transition={{ delay: 0.55, duration: 0.4 }}
+                initial={{ opacity: 0, y: 40 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.2, ease: "easeOut" }}
               >
-                PROMOÇÃO
-              </motion.div>
-            )}
+                {/* Description sub-container (white/translucent) */}
+                <motion.div
+                  className="terminal-desc-card"
+                  initial={{ x: -60, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  transition={{ duration: 0.4, delay: 0.3, ease: "easeOut" }}
+                >
+                  {(() => {
+                    const fullName = produto.nome_curto || produto.nome;
+                    const words = fullName.split(/\s+/);
+                    const highlight = words.slice(0, 3).join(" ");
+                    const rest = words.slice(3).join(" ");
+                    return (
+                      <>
+                        <h1 className="terminal-desc-highlight" style={{ fontSize: Math.max(fontNome, 28) }}>
+                          {highlight}
+                        </h1>
+                        {rest && (
+                          <p className="terminal-desc-details" style={{ fontSize: Math.max(fontNome * 0.7, 16) }}>
+                            {rest}
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()}
+                  {produto.marca && (
+                    <p className="terminal-desc-brand">{produto.marca}</p>
+                  )}
+                </motion.div>
 
-            {allSugestoes.length > 0 && (
-              <motion.div className="terminal-suggestions" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.6 }}>
-                <h2 className="terminal-suggestions-title" style={{ color: t.textMuted }}>💡 Você também pode gostar</h2>
-                <div className="terminal-suggestions-grid">
-                  {allSugestoes.map((s, i) => (
-                    <motion.button
-                      key={s.ean}
-                      className="terminal-suggestion-card"
-                      style={{
-                        background: t.suggestionBg,
-                        borderColor: t.suggestionBorder,
-                        transition: "background 0.8s ease, border-color 0.8s ease",
-                      }}
-                      initial={{ opacity: 0, y: 15 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.3, delay: 0.7 + i * 0.08 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => { setEan(s.ean); consultar(s.ean); }}
+                {/* Price sub-container (secondary color) */}
+                <motion.div
+                  className="terminal-price-container"
+                  style={{
+                    background: t.priceContainerGradient,
+                    boxShadow: `0 8px 30px ${t.priceContainerBg}44`,
+                    transition: "background 0.8s ease, box-shadow 0.8s ease",
+                  }}
+                  initial={{ opacity: 0, y: 30, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ duration: 0.4, delay: 0.4, type: "spring", stiffness: 250, damping: 22 }}
+                >
+                  {hasDiscount && (
+                    <p className="terminal-container-old-price" style={{ color: t.priceTextMuted }}>
+                      De R$ {produto.preco_lista!.toFixed(2)}
+                    </p>
+                  )}
+                  <div className="terminal-container-price" style={{ color: t.priceTextColor }}>
+                    <span className="terminal-container-price-symbol">R$</span>
+                    <motion.span
+                      className="terminal-container-price-reais"
+                      style={{ fontSize: fontPreco, color: t.priceTextColor }}
+                      initial={{ scale: 0.6, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ duration: 0.4, delay: 0.5, type: "spring", stiffness: 300 }}
                     >
-                      {s.imagem_url_vtex ? (
-                        <img src={s.imagem_url_vtex} alt={s.nome} className="terminal-suggestion-img" />
-                      ) : (
-                        <div className="terminal-suggestion-noimg"><Barcode className="w-6 h-6 text-black/15" /></div>
-                      )}
-                      <p className="terminal-suggestion-name" style={{ color: t.textMuted }}>{s.nome_curto || s.nome}</p>
-                      {s.preco && <p className="terminal-suggestion-price" style={{ color: t.textColor }}>R$ {s.preco.toFixed(2)}</p>}
-                    </motion.button>
-                  ))}
-                </div>
+                      {formatPrice(produto.preco ?? 0).reais}
+                    </motion.span>
+                    <span className="terminal-container-price-cents" style={{ fontSize: fontPreco * 0.45, color: t.priceTextColor }}>
+                      ,{formatPrice(produto.preco ?? 0).centavos}
+                    </span>
+                  </div>
+                  {produto.unidade_medida && (
+                    <p className="terminal-container-unit" style={{ color: t.priceTextMuted }}>{produto.unidade_medida}</p>
+                  )}
+                </motion.div>
+
+                {/* Promo strip */}
+                {hasDiscount && (
+                  <motion.div
+                    className="terminal-promo-strip"
+                    style={{
+                      background: `linear-gradient(90deg, ${t.accent}, ${t.tertiary})`,
+                      color: t.bannerTextColor,
+                      transition: "background 0.8s ease",
+                    }}
+                    initial={{ opacity: 0, scaleX: 0 }}
+                    animate={{ opacity: 1, scaleX: 1 }}
+                    transition={{ delay: 0.55, duration: 0.4 }}
+                  >
+                    PROMOÇÃO
+                  </motion.div>
+                )}
+
+                {/* Suggestions inside the main container */}
+                {allSugestoes.length > 0 && (
+                  <motion.div className="terminal-suggestions" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.6 }}>
+                    <h2 className="terminal-suggestions-title" style={{ color: t.containerTextMuted }}>💡 Você também pode gostar</h2>
+                    <div className="terminal-suggestions-grid">
+                      {allSugestoes.map((s, i) => (
+                        <motion.button
+                          key={s.ean}
+                          className="terminal-suggestion-card"
+                          style={{
+                            background: "rgba(255,255,255,0.5)",
+                            borderColor: "rgba(255,255,255,0.7)",
+                            transition: "background 0.8s ease, border-color 0.8s ease",
+                          }}
+                          initial={{ opacity: 0, y: 15 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.3, delay: 0.7 + i * 0.08 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => { setEan(s.ean); consultar(s.ean); }}
+                        >
+                          {s.imagem_url_vtex ? (
+                            <img src={s.imagem_url_vtex} alt={s.nome} className="terminal-suggestion-img" />
+                          ) : (
+                            <div className="terminal-suggestion-noimg"><Barcode className="w-6 h-6 text-black/15" /></div>
+                          )}
+                          <p className="terminal-suggestion-name" style={{ color: t.containerTextMuted }}>{s.nome_curto || s.nome}</p>
+                          {s.preco && <p className="terminal-suggestion-price" style={{ color: t.containerTextColor }}>R$ {s.preco.toFixed(2)}</p>}
+                        </motion.button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
               </motion.div>
-            )}
-          </motion.div>
+            </motion.div>
         )}
       </AnimatePresence>
 
