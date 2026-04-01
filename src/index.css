@@ -221,7 +221,7 @@
   }
 
   .terminal-product-area {
-    @apply relative z-10 flex flex-col items-center w-full max-w-md mx-auto px-4 pb-8 flex-1 pt-4;
+    @apply relative z-10 flex flex-col items-center w-full max-w-md mx-auto px-4 pb-8 flex-1 pt-6;
   }
 
   /* Large product image at the top */
@@ -237,30 +237,69 @@
   }
 
   .terminal-product-image-large {
-    @apply w-64 h-64 object-contain relative z-10 drop-shadow-2xl;
-    filter: drop-shadow(0 10px 25px rgba(0,0,0,0.15));
+    @apply w-64 h-64 object-contain relative z-10;
+    filter: drop-shadow(0 8px 20px rgba(0,0,0,0.12));
   }
 
   .terminal-no-image-large {
     @apply w-64 h-64 flex items-center justify-center;
   }
 
-  .terminal-name-banner {
-    @apply w-full mt-4 px-5 py-3 rounded-xl;
-    background: linear-gradient(135deg, #c0392b, #a93226);
-    box-shadow: 0 8px 30px rgba(192, 57, 43, 0.25);
+  /* Description block - clean text layout */
+  .terminal-description-block {
+    @apply w-full mt-4 px-4 text-center;
   }
 
-  .terminal-product-name {
-    @apply text-white font-bold text-xl uppercase leading-tight tracking-wide;
+  .terminal-desc-highlight {
+    @apply font-black uppercase leading-tight tracking-wide;
+    color: #1a1a1a;
   }
 
-  .terminal-product-brand {
-    @apply text-white/80 text-sm mt-0.5 uppercase tracking-wider;
+  .terminal-desc-details {
+    @apply mt-1 leading-snug;
+    color: #555555;
+    font-weight: 400;
   }
 
-  .terminal-price-area {
-    @apply text-center mt-4;
+  .terminal-desc-brand {
+    @apply text-xs mt-1 uppercase tracking-widest;
+    color: #999999;
+  }
+
+  /* Price container - rounded, dynamic colored */
+  .terminal-price-container {
+    @apply mt-5 px-8 py-4 rounded-3xl text-center inline-flex flex-col items-center;
+    min-width: 200px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+  }
+
+  .terminal-container-old-price {
+    @apply text-sm line-through mb-1;
+  }
+
+  .terminal-container-price {
+    @apply flex items-baseline justify-center;
+  }
+
+  .terminal-container-price-symbol {
+    @apply text-xl font-bold mr-1 self-start mt-2;
+  }
+
+  .terminal-container-price-reais {
+    @apply text-7xl font-black leading-none;
+  }
+
+  .terminal-container-price-cents {
+    @apply text-3xl font-bold self-start mt-1;
+  }
+
+  .terminal-container-unit {
+    @apply text-xs mt-1 uppercase tracking-wide;
+  }
+
+  /* Promo strip */
+  .terminal-promo-strip {
+    @apply mt-3 px-6 py-1.5 rounded-full text-sm font-bold uppercase tracking-widest;
   }
 
   .terminal-old-price {
@@ -377,41 +416,33 @@
       @apply w-72 h-72;
     }
 
-    .terminal-name-banner {
-      @apply mt-0 rounded-xl flex-1;
+    .terminal-description-block {
+      @apply mt-0 text-left flex-1;
     }
 
-    .terminal-product-name {
-      @apply text-3xl;
+    .terminal-desc-highlight {
+      @apply text-4xl;
     }
 
-    .terminal-product-brand {
-      @apply text-base;
+    .terminal-desc-details {
+      @apply text-lg;
     }
 
-    .terminal-price-area {
-      @apply text-left mt-4;
+    .terminal-price-container {
+      @apply mt-4;
       flex-basis: 100%;
     }
 
-    .terminal-price {
-      @apply justify-start;
+    .terminal-container-price-reais {
+      @apply text-8xl;
     }
 
-    .terminal-price-reais {
-      @apply text-9xl;
+    .terminal-container-price-symbol {
+      @apply text-2xl mt-3;
     }
 
-    .terminal-price-symbol {
-      @apply text-3xl mt-3;
-    }
-
-    .terminal-price-centavos {
-      @apply text-5xl;
-    }
-
-    .terminal-volume-price {
-      @apply justify-start;
+    .terminal-container-price-cents {
+      @apply text-4xl;
     }
 
     .terminal-suggestions {
