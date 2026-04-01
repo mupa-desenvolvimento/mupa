@@ -10,41 +10,29 @@ interface Endpoint {
   example?: string;
 }
 
+const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+
 const sections: { title: string; endpoints: Endpoint[] }[] = [
   {
-    title: "Produtos",
+    title: "🔌 API REST — Terminais Mupa",
     endpoints: [
       {
         method: "GET",
-        path: "/api/produtos",
-        description: "Lista paginada de produtos com filtros",
-        params: "?q=negresco&marca=nestle&categoria_id=7&disponivel=true&com_imagem=true&promo=true&page=1&per_page=20",
-      },
-      {
-        method: "GET",
-        path: "/api/produtos/{ean}",
+        path: `${BASE_URL}/api-produtos?ean=7894900027013`,
         description: "Busca produto por EAN (uso principal nos terminais)",
-        example: '/api/produtos/7891000100103',
+        example: "Retorna dados completos do produto com preço, imagem e disponibilidade",
       },
       {
         method: "GET",
-        path: "/api/produtos/busca?q=",
-        description: "Busca full-text por nome, marca ou EAN",
+        path: `${BASE_URL}/api-produtos?q=leite integral`,
+        description: "Busca por descrição — busca direta por nome, marca ou EAN",
+        params: "?q=TEXTO&limit=10",
       },
       {
         method: "GET",
-        path: "/api/produtos/categoria/{id}",
-        description: "Produtos filtrados por categoria",
-      },
-      {
-        method: "GET",
-        path: "/api/produtos/marca/{nome}",
-        description: "Produtos filtrados por marca",
-      },
-      {
-        method: "GET",
-        path: "/api/produtos/sem-imagem",
-        description: "Lista produtos sem imagem baixada",
+        path: `${BASE_URL}/api-produtos?q=refri coca 2l`,
+        description: "Busca inteligente com IA — identifica produto mesmo com descrição parcial ou incompleta",
+        example: "Usa IA para interpretar buscas como 'refri coca 2l' e encontrar 'Refrigerante Coca-Cola Pet 2L'",
       },
     ],
   },
@@ -53,88 +41,32 @@ const sections: { title: string; endpoints: Endpoint[] }[] = [
     endpoints: [
       {
         method: "POST",
-        path: "/api/sync/start",
-        description: "Inicia sincronização completa com Rissul em background",
-      },
-      {
-        method: "GET",
-        path: "/api/sync/status",
-        description: "Status atual da sincronização (progresso, ETA)",
-      },
-      {
-        method: "GET",
-        path: "/api/sync/logs",
-        description: "Histórico de sincronizações anteriores",
+        path: `${BASE_URL}/sync-produtos`,
+        description: "Inicia sincronização incremental com Rissul (continua de onde parou)",
       },
     ],
   },
   {
-    title: "Imagens",
+    title: "Parâmetros da API",
     endpoints: [
       {
         method: "GET",
-        path: "/api/imagens/{ean}",
-        description: "Retorna a URL da imagem do produto",
-      },
-      {
-        method: "POST",
-        path: "/api/imagens/sync",
-        description: "Inicia download das imagens pendentes",
+        path: "?ean=CODIGO",
+        description: "Busca exata por EAN — retorna um único produto ou 404",
       },
       {
         method: "GET",
-        path: "/api/imagens/status",
-        description: "Progresso do download de imagens",
-      },
-    ],
-  },
-  {
-    title: "Sugestões (Terminais)",
-    endpoints: [
-      {
-        method: "GET",
-        path: "/api/sugestoes/{ean}",
-        description: "Produtos similares da mesma categoria (4-6 itens)",
+        path: "?q=DESCRICAO",
+        description: "Busca por texto — primeiro tenta match direto, se poucos resultados usa IA",
       },
       {
         method: "GET",
-        path: "/api/sugestoes/vinhos?tipo=tinto&preco_max=80",
-        description: "Filtro especializado para vinhos",
-      },
-      {
-        method: "GET",
-        path: "/api/destaques?limite=10",
-        description: "Produtos em promoção, ordenados por maior desconto",
-      },
-    ],
-  },
-  {
-    title: "Categorias e Marcas",
-    endpoints: [
-      {
-        method: "GET",
-        path: "/api/categorias",
-        description: "Árvore de categorias com contagem de produtos",
-      },
-      {
-        method: "GET",
-        path: "/api/marcas",
-        description: "Lista de marcas com total de produtos",
-      },
-    ],
-  },
-  {
-    title: "Dashboard / Stats",
-    endpoints: [
-      {
-        method: "GET",
-        path: "/api/stats",
-        description: "Estatísticas gerais: totais, última sync, cobertura de imagens",
+        path: "?q=DESCRICAO&limit=20",
+        description: "Limita resultados (padrão: 10, máximo: 50)",
       },
     ],
   },
 ];
-
 export default function DocsPage() {
   const [copied, setCopied] = useState<string | null>(null);
 
