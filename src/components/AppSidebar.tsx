@@ -20,6 +20,7 @@ const navItems = [
 
 export default function AppSidebar() {
   const location = useLocation();
+  const { user, signOut } = useAuth();
 
   return (
     <aside className="sidebar-gradient fixed left-0 top-0 h-screen w-64 flex flex-col z-50">
