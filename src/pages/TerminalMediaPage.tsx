@@ -7,6 +7,23 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Upload, Trash2, GripVertical, Image, Video, ExternalLink, Settings } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 interface TerminalMedia {
   id: string;
@@ -27,15 +44,98 @@ const SUGGESTION_TYPES = [
   { value: "todas", label: "Todas (misto)" },
 ];
 
+function SortableMediaItem({
+  item,
+  onToggle,
+  onDelete,
+  onDurationChange,
+}: {
+  item: TerminalMedia;
+  onToggle: (id: string, ativo: boolean) => void;
+  onDelete: (item: TerminalMedia) => void;
+  onDurationChange: (id: string, duracao: number) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : undefined,
+    opacity: isDragging ? 0.8 : !item.ativo ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`stat-card flex items-center gap-4 !p-3 ${isDragging ? "shadow-lg ring-2 ring-primary/30" : ""}`}
+    >
+      <button {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing shrink-0 touch-none">
+        <GripVertical className="w-4 h-4 text-muted-foreground/40" />
+      </button>
+
+      <div className="w-20 h-14 rounded-lg overflow-hidden bg-muted shrink-0">
+        {item.tipo === "imagem" ? (
+          <img src={item.url} alt={item.nome} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <Video className="w-6 h-6 text-muted-foreground" />
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{item.nome}</p>
+        <p className="text-xs text-muted-foreground capitalize">
+          {item.tipo}
+          {item.tipo === "imagem" && ` • ${item.duracao_segundos}s`}
+        </p>
+      </div>
+
+      {item.tipo === "imagem" && (
+        <div className="flex items-center gap-1 shrink-0">
+          <Input
+            type="number"
+            min={3}
+            max={60}
+            value={item.duracao_segundos}
+            onChange={(e) => {
+              const val = parseInt(e.target.value);
+              if (val >= 3 && val <= 60) onDurationChange(item.id, val);
+            }}
+            className="w-16 h-8 text-xs text-center"
+          />
+          <span className="text-xs text-muted-foreground">seg</span>
+        </div>
+      )}
+
+      <Switch checked={item.ativo} onCheckedChange={(checked) => onToggle(item.id, checked)} />
+
+      <Button
+        variant="ghost"
+        size="icon"
+        className="shrink-0 text-destructive hover:text-destructive"
+        onClick={() => onDelete(item)}
+      >
+        <Trash2 className="w-4 h-4" />
+      </Button>
+    </div>
+  );
+}
+
 export default function TerminalMediaPage() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [tipoSugestao, setTipoSugestao] = useState("complementares");
 
-  // Fetch config
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
   useEffect(() => {
-    const fetch = async () => {
+    const fetchConfig = async () => {
       const { data } = await supabase
         .from("terminal_config")
         .select("valor")
@@ -43,7 +143,7 @@ export default function TerminalMediaPage() {
         .maybeSingle();
       if (data?.valor) setTipoSugestao(data.valor);
     };
-    fetch();
+    fetchConfig();
   }, []);
 
   const saveTipoSugestao = async (value: string) => {
@@ -96,6 +196,25 @@ export default function TerminalMediaPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["terminal-media"] }),
   });
 
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = mediaList.findIndex((m) => m.id === active.id);
+    const newIndex = mediaList.findIndex((m) => m.id === over.id);
+    const reordered = arrayMove(mediaList, oldIndex, newIndex);
+
+    // Optimistic update
+    queryClient.setQueryData(["terminal-media"], reordered);
+
+    // Persist new order
+    const updates = reordered.map((item, i) =>
+      supabase.from("terminal_media").update({ ordem: i }).eq("id", item.id)
+    );
+    await Promise.all(updates);
+    queryClient.invalidateQueries({ queryKey: ["terminal-media"] });
+  };
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
@@ -124,9 +243,7 @@ export default function TerminalMediaPage() {
         continue;
       }
 
-      const { data: urlData } = supabase.storage
-        .from("terminal-media")
-        .getPublicUrl(path);
+      const { data: urlData } = supabase.storage.from("terminal-media").getPublicUrl(path);
 
       const { error: insertError } = await supabase.from("terminal_media").insert({
         nome: file.name,
@@ -137,9 +254,7 @@ export default function TerminalMediaPage() {
         duracao_segundos: isVideo ? 0 : 8,
       });
 
-      if (insertError) {
-        toast.error(`Erro ao salvar ${file.name}`);
-      }
+      if (insertError) toast.error(`Erro ao salvar ${file.name}`);
     }
 
     setUploading(false);
@@ -171,7 +286,6 @@ export default function TerminalMediaPage() {
         </div>
       </div>
 
-      {/* Suggestion type config */}
       <div className="stat-card !p-4 flex items-center gap-4">
         <Settings className="w-5 h-5 text-muted-foreground shrink-0" />
         <div className="flex-1">
@@ -214,69 +328,21 @@ export default function TerminalMediaPage() {
           </Button>
         </div>
       ) : (
-        <div className="space-y-2">
-          {mediaList.map((item) => (
-            <div
-              key={item.id}
-              className={`stat-card flex items-center gap-4 !p-3 ${!item.ativo ? "opacity-50" : ""}`}
-            >
-              <GripVertical className="w-4 h-4 text-muted-foreground/40 shrink-0" />
-
-              <div className="w-20 h-14 rounded-lg overflow-hidden bg-muted shrink-0">
-                {item.tipo === "imagem" ? (
-                  <img src={item.url} alt={item.nome} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Video className="w-6 h-6 text-muted-foreground" />
-                  </div>
-                )}
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{item.nome}</p>
-                <p className="text-xs text-muted-foreground capitalize">
-                  {item.tipo}
-                  {item.tipo === "imagem" && ` • ${item.duracao_segundos}s`}
-                </p>
-              </div>
-
-              {item.tipo === "imagem" && (
-                <div className="flex items-center gap-1 shrink-0">
-                  <Input
-                    type="number"
-                    min={3}
-                    max={60}
-                    value={item.duracao_segundos}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value);
-                      if (val >= 3 && val <= 60) {
-                        updateDuration.mutate({ id: item.id, duracao_segundos: val });
-                      }
-                    }}
-                    className="w-16 h-8 text-xs text-center"
-                  />
-                  <span className="text-xs text-muted-foreground">seg</span>
-                </div>
-              )}
-
-              <Switch
-                checked={item.ativo}
-                onCheckedChange={(checked) =>
-                  toggleMutation.mutate({ id: item.id, ativo: checked })
-                }
-              />
-
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0 text-destructive hover:text-destructive"
-                onClick={() => deleteMutation.mutate(item)}
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={mediaList.map(m => m.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-2">
+              {mediaList.map((item) => (
+                <SortableMediaItem
+                  key={item.id}
+                  item={item}
+                  onToggle={(id, ativo) => toggleMutation.mutate({ id, ativo })}
+                  onDelete={(item) => deleteMutation.mutate(item)}
+                  onDurationChange={(id, dur) => updateDuration.mutate({ id, duracao_segundos: dur })}
+                />
+              ))}
             </div>
-          ))}
-        </div>
+          </SortableContext>
+        </DndContext>
       )}
     </div>
   );
