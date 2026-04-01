@@ -49,6 +49,11 @@ export default function TerminalPage() {
   const [beepEnabled, setBeepEnabled] = useState(true);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [inputFocused, setInputFocused] = useState(false);
+  // Appearance configs
+  const [fontNome, setFontNome] = useState(24);
+  const [fontPreco, setFontPreco] = useState(72);
+  const [imgSize, setImgSize] = useState(280);
+  const [maxSugestoes, setMaxSugestoes] = useState(3);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
