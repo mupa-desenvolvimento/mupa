@@ -330,6 +330,60 @@ async function generateThemeFromImage(imageUrl: string): Promise<ProductTheme> {
 const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 
 export default function TerminalPage() {
+  // ── Device activation state ──
+  const [deviceActivated, setDeviceActivated] = useState<boolean>(() => {
+    return !!localStorage.getItem("mupa_device_id");
+  });
+  const [activationCode, setActivationCode] = useState("");
+  const [activationError, setActivationError] = useState<string | null>(null);
+  const [activatingDevice, setActivatingDevice] = useState(false);
+  const [deviceEmpresa, setDeviceEmpresa] = useState<string | null>(null);
+
+  const activateDevice = async () => {
+    const code = activationCode.trim().toUpperCase();
+    if (!code) return;
+    setActivatingDevice(true);
+    setActivationError(null);
+    try {
+      const { data, error } = await supabase
+        .from("dispositivos")
+        .select("id, empresa_id, ativo")
+        .eq("codigo_ativacao", code)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        setActivationError("Código inválido. Verifique e tente novamente.");
+        setActivatingDevice(false);
+        return;
+      }
+      // Activate device
+      await supabase.from("dispositivos").update({
+        ativo: true,
+        ativado_em: new Date().toISOString(),
+        ultimo_acesso: new Date().toISOString(),
+      }).eq("id", data.id);
+
+      localStorage.setItem("mupa_device_id", data.id);
+      localStorage.setItem("mupa_empresa_id", data.empresa_id || "");
+      setDeviceEmpresa(data.empresa_id);
+      setDeviceActivated(true);
+    } catch (e: any) {
+      setActivationError(e.message || "Erro ao ativar dispositivo");
+    }
+    setActivatingDevice(false);
+  };
+
+  // Load empresa on mount if device is activated
+  useEffect(() => {
+    const empresaId = localStorage.getItem("mupa_empresa_id");
+    if (empresaId) setDeviceEmpresa(empresaId);
+    // Update last access
+    const deviceId = localStorage.getItem("mupa_device_id");
+    if (deviceId) {
+      supabase.from("dispositivos").update({ ultimo_acesso: new Date().toISOString() }).eq("id", deviceId).then(() => {});
+    }
+  }, []);
+
   const [ean, setEan] = useState("");
   const [produto, setProduto] = useState<Produto | null>(null);
   const [sugestoes, setSugestoes] = useState<Sugestoes | null>(null);
