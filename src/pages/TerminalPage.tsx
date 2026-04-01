@@ -264,7 +264,7 @@ function _generateTheme(colors: RGB[]): ProductTheme {
     textColor, textMuted, cardColor,
     bannerGradient: `linear-gradient(135deg, ${rgbStr(accent)}, ${rgbStr(bannerDark)})`,
     bannerShadow: `0 8px 30px ${rgbaStr(accent, 0.25)}`,
-    bannerTextColor: autoTextColor(accent),
+    bannerTextColor: luminance(accent) > 0.18 ? "#1a1a1a" : "#ffffff",
     bannerTextMuted: luminance(accent) > 0.18 ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.8)",
     blobColors: [
       `radial-gradient(circle, ${rgbaStr(primary, 0.15)}, transparent 70%)`,
