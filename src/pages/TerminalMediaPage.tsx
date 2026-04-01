@@ -256,9 +256,9 @@ export default function TerminalMediaPage() {
     setWavesEnabled(false);
     const colorDefaults = [
       { chave: "cor_auto", valor: "true" },
-      { chave: "cor_fundo", valor: "#1a0a0a" },
+      { chave: "cor_fundo", valor: "#f5f0ef" },
       { chave: "cor_descricao", valor: "#c0392b" },
-      { chave: "cor_preco", valor: "#ffffff" },
+      { chave: "cor_preco", valor: "#1a1a1a" },
       { chave: "waves_enabled", valor: "false" },
     ];
     for (const c of colorDefaults) {
