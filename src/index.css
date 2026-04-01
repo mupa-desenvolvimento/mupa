@@ -278,8 +278,8 @@
 
   /* Price container - rounded, dynamic colored */
   .terminal-price-container {
-    @apply mt-5 px-8 py-4 rounded-3xl text-center inline-flex flex-col items-center;
-    min-width: 200px;
+    @apply mt-4 px-8 py-4 rounded-3xl text-center inline-flex flex-col items-center;
+    min-width: 220px;
     box-shadow: 0 8px 30px rgba(0,0,0,0.15);
   }
 
