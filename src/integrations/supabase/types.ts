@@ -14,7 +14,162 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      categorias: {
+        Row: {
+          caminho: string | null
+          id: string
+          nome: string | null
+          parent_id: string | null
+          total_produtos: number | null
+        }
+        Insert: {
+          caminho?: string | null
+          id: string
+          nome?: string | null
+          parent_id?: string | null
+          total_produtos?: number | null
+        }
+        Update: {
+          caminho?: string | null
+          id?: string
+          nome?: string | null
+          parent_id?: string | null
+          total_produtos?: number | null
+        }
+        Relationships: []
+      }
+      marcas: {
+        Row: {
+          id: string
+          nome: string
+          total_produtos: number | null
+        }
+        Insert: {
+          id?: string
+          nome: string
+          total_produtos?: number | null
+        }
+        Update: {
+          id?: string
+          nome?: string
+          total_produtos?: number | null
+        }
+        Relationships: []
+      }
+      produtos: {
+        Row: {
+          atualizado_em: string
+          categoria: string | null
+          categoria_id: string | null
+          clusters: Json | null
+          criado_em: string
+          descricao: string | null
+          disponivel: boolean | null
+          ean: string
+          id: string
+          imagem_baixada: boolean | null
+          imagem_local: string | null
+          imagem_url_azure: string | null
+          imagem_url_vtex: string | null
+          link_rissul: string | null
+          marca: string | null
+          multiplicador: number | null
+          nome: string
+          nome_curto: string | null
+          preco: number | null
+          preco_lista: number | null
+          product_id: string | null
+          slug: string | null
+          unidade_medida: string | null
+        }
+        Insert: {
+          atualizado_em?: string
+          categoria?: string | null
+          categoria_id?: string | null
+          clusters?: Json | null
+          criado_em?: string
+          descricao?: string | null
+          disponivel?: boolean | null
+          ean: string
+          id?: string
+          imagem_baixada?: boolean | null
+          imagem_local?: string | null
+          imagem_url_azure?: string | null
+          imagem_url_vtex?: string | null
+          link_rissul?: string | null
+          marca?: string | null
+          multiplicador?: number | null
+          nome: string
+          nome_curto?: string | null
+          preco?: number | null
+          preco_lista?: number | null
+          product_id?: string | null
+          slug?: string | null
+          unidade_medida?: string | null
+        }
+        Update: {
+          atualizado_em?: string
+          categoria?: string | null
+          categoria_id?: string | null
+          clusters?: Json | null
+          criado_em?: string
+          descricao?: string | null
+          disponivel?: boolean | null
+          ean?: string
+          id?: string
+          imagem_baixada?: boolean | null
+          imagem_local?: string | null
+          imagem_url_azure?: string | null
+          imagem_url_vtex?: string | null
+          link_rissul?: string | null
+          marca?: string | null
+          multiplicador?: number | null
+          nome?: string
+          nome_curto?: string | null
+          preco?: number | null
+          preco_lista?: number | null
+          product_id?: string | null
+          slug?: string | null
+          unidade_medida?: string | null
+        }
+        Relationships: []
+      }
+      sync_log: {
+        Row: {
+          erro: string | null
+          finalizado_em: string | null
+          id: string
+          imagens_baixadas: number | null
+          iniciado_em: string | null
+          produtos_atualizados: number | null
+          produtos_novos: number | null
+          status: string | null
+          total_produtos: number | null
+        }
+        Insert: {
+          erro?: string | null
+          finalizado_em?: string | null
+          id?: string
+          imagens_baixadas?: number | null
+          iniciado_em?: string | null
+          produtos_atualizados?: number | null
+          produtos_novos?: number | null
+          status?: string | null
+          total_produtos?: number | null
+        }
+        Update: {
+          erro?: string | null
+          finalizado_em?: string | null
+          id?: string
+          imagens_baixadas?: number | null
+          iniciado_em?: string | null
+          produtos_atualizados?: number | null
+          produtos_novos?: number | null
+          status?: string | null
+          total_produtos?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
