@@ -415,19 +415,25 @@
   /* ===== LANDSCAPE MODE (width > height) ===== */
   @media (orientation: landscape) and (min-width: 640px) {
     .terminal-product-area {
-      @apply max-w-5xl flex-row flex-wrap justify-center items-center pt-2;
+      @apply max-w-5xl flex-row flex-wrap justify-center items-start pt-2;
     }
 
     .terminal-product-image-top {
       @apply flex-none;
+      margin-bottom: -60px;
     }
 
     .terminal-product-image-large {
       @apply w-72 h-72;
     }
 
-    .terminal-description-block {
-      @apply mt-0 text-left flex-1;
+    .terminal-main-container {
+      @apply flex-1 ml-4;
+      max-width: 60%;
+    }
+
+    .terminal-desc-card {
+      @apply text-left;
     }
 
     .terminal-desc-highlight {
@@ -440,7 +446,6 @@
 
     .terminal-price-container {
       @apply mt-4;
-      flex-basis: 100%;
     }
 
     .terminal-container-price-reais {
