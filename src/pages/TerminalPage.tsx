@@ -103,26 +103,52 @@ export default function TerminalPage() {
   }, []);
 
   // Fetch terminal config
-  useEffect(() => {
-    const fetchConfig = async () => {
-      const { data } = await supabase
-        .from("terminal_config")
-        .select("chave, valor");
-      if (data) {
-        for (const row of data) {
-          switch (row.chave) {
-            case "tipo_sugestao": setTipoSugestao(row.valor); break;
-            case "beep_enabled": setBeepEnabled(row.valor !== "false"); break;
-            case "tts_enabled": setTtsEnabled(row.valor !== "false"); break;
-            case "font_nome": setFontNome(Number(row.valor) || 24); break;
-            case "font_preco": setFontPreco(Number(row.valor) || 72); break;
-            case "img_size": setImgSize(Number(row.valor) || 280); break;
-            case "max_sugestoes": setMaxSugestoes(Number(row.valor) ?? 3); break;
-          }
+  const loadConfig = useCallback(async () => {
+    const { data } = await supabase
+      .from("terminal_config")
+      .select("chave, valor");
+    if (data) {
+      for (const row of data) {
+        switch (row.chave) {
+          case "tipo_sugestao": setTipoSugestao(row.valor); break;
+          case "beep_enabled": setBeepEnabled(row.valor !== "false"); break;
+          case "tts_enabled": setTtsEnabled(row.valor !== "false"); break;
+          case "font_nome": setFontNome(Number(row.valor) || 24); break;
+          case "font_preco": setFontPreco(Number(row.valor) || 72); break;
+          case "img_size": setImgSize(Number(row.valor) || 280); break;
+          case "max_sugestoes": setMaxSugestoes(Number(row.valor) ?? 3); break;
         }
       }
-    };
-    fetchConfig();
+    }
+  }, []);
+
+  useEffect(() => { loadConfig(); }, [loadConfig]);
+
+  // Realtime: reload config when changed from admin
+  useEffect(() => {
+    const channel = supabase
+      .channel("terminal-config-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "terminal_config" }, () => {
+        loadConfig();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [loadConfig]);
+
+  // Realtime: reload media when changed from admin
+  useEffect(() => {
+    const channel = supabase
+      .channel("terminal-media-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "terminal_media" }, async () => {
+        const { data } = await supabase
+          .from("terminal_media")
+          .select("id, tipo, url, duracao_segundos")
+          .eq("ativo", true)
+          .order("ordem", { ascending: true });
+        if (data) setMediaList(data as MediaItem[]);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   // Reset to idle after 30s of inactivity
