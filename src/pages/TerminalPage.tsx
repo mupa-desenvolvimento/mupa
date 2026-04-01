@@ -27,6 +27,13 @@ interface Sugestoes {
   perfil: Sugestao[];
 }
 
+interface MediaItem {
+  id: string;
+  tipo: "imagem" | "video";
+  url: string;
+  duracao_segundos: number;
+}
+
 const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 
 export default function TerminalPage() {
@@ -36,6 +43,8 @@ export default function TerminalPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mediaList, setMediaList] = useState<MediaItem[]>([]);
+  const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
