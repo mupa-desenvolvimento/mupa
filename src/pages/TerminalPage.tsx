@@ -579,8 +579,8 @@ export default function TerminalPage() {
 
       <button
         onClick={toggleFullscreen}
-        className="absolute top-3 right-3 z-50 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/70 transition-colors"
-        style={{ background: "rgba(255,255,255,0.05)" }}
+        className="absolute top-3 right-3 z-50 w-8 h-8 rounded-lg flex items-center justify-center text-black/20 hover:text-black/50 transition-colors"
+        style={{ background: "rgba(0,0,0,0.03)" }}
         title={isFullscreen ? "Sair do fullscreen" : "Entrar em fullscreen"}
       >
         {isFullscreen ? (
