@@ -46,6 +46,8 @@ export default function TerminalPage() {
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
   const [tipoSugestao, setTipoSugestao] = useState<string>("complementares");
+  const [beepEnabled, setBeepEnabled] = useState(true);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
   const [inputFocused, setInputFocused] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -95,15 +97,20 @@ export default function TerminalPage() {
     return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
-  // Fetch terminal config (tipo_sugestao)
+  // Fetch terminal config
   useEffect(() => {
     const fetchConfig = async () => {
       const { data } = await supabase
         .from("terminal_config")
-        .select("valor")
-        .eq("chave", "tipo_sugestao")
-        .maybeSingle();
-      if (data?.valor) setTipoSugestao(data.valor);
+        .select("chave, valor")
+        .in("chave", ["tipo_sugestao", "beep_enabled", "tts_enabled"]);
+      if (data) {
+        for (const row of data) {
+          if (row.chave === "tipo_sugestao") setTipoSugestao(row.valor);
+          if (row.chave === "beep_enabled") setBeepEnabled(row.valor !== "false");
+          if (row.chave === "tts_enabled") setTtsEnabled(row.valor !== "false");
+        }
+      }
     };
     fetchConfig();
   }, []);
@@ -249,7 +256,7 @@ export default function TerminalPage() {
     // Clear input immediately
     setEan("");
 
-    playBeep();
+    if (beepEnabled) playBeep();
     setLoading(true);
     setError(null);
     setProduto(null);
@@ -268,7 +275,7 @@ export default function TerminalPage() {
       setProduto(prod);
 
       // Speak the price
-      if (prod.preco) {
+      if (ttsEnabled && prod.preco) {
         speakPrice(prod.preco, prod.nome_curto || prod.nome);
       }
 

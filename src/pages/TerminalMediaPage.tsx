@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Upload, Trash2, GripVertical, Image, Video, ExternalLink, Settings } from "lucide-react";
+import { Upload, Trash2, GripVertical, Image, Video, ExternalLink, Settings, Volume2, Bell } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -128,6 +128,8 @@ export default function TerminalMediaPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [tipoSugestao, setTipoSugestao] = useState("complementares");
+  const [beepEnabled, setBeepEnabled] = useState(true);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -138,10 +140,15 @@ export default function TerminalMediaPage() {
     const fetchConfig = async () => {
       const { data } = await supabase
         .from("terminal_config")
-        .select("valor")
-        .eq("chave", "tipo_sugestao")
-        .maybeSingle();
-      if (data?.valor) setTipoSugestao(data.valor);
+        .select("chave, valor")
+        .in("chave", ["tipo_sugestao", "beep_enabled", "tts_enabled"]);
+      if (data) {
+        for (const row of data) {
+          if (row.chave === "tipo_sugestao") setTipoSugestao(row.valor);
+          if (row.chave === "beep_enabled") setBeepEnabled(row.valor !== "false");
+          if (row.chave === "tts_enabled") setTtsEnabled(row.valor !== "false");
+        }
+      }
     };
     fetchConfig();
   }, []);
@@ -302,6 +309,34 @@ export default function TerminalMediaPage() {
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="stat-card !p-4 flex items-center gap-4">
+        <Bell className="w-5 h-5 text-muted-foreground shrink-0" />
+        <div className="flex-1">
+          <p className="text-sm font-medium">Bipe ao Consultar</p>
+          <p className="text-xs text-muted-foreground">Toca um som ao bipar um código de barras</p>
+        </div>
+        <Switch checked={beepEnabled} onCheckedChange={async (checked) => {
+          setBeepEnabled(checked);
+          const { error } = await supabase.from("terminal_config")
+            .upsert({ chave: "beep_enabled", valor: String(checked), atualizado_em: new Date().toISOString() }, { onConflict: "chave" });
+          if (error) toast.error("Erro ao salvar"); else toast.success("Configuração salva");
+        }} />
+      </div>
+
+      <div className="stat-card !p-4 flex items-center gap-4">
+        <Volume2 className="w-5 h-5 text-muted-foreground shrink-0" />
+        <div className="flex-1">
+          <p className="text-sm font-medium">Falar Preço (TTS)</p>
+          <p className="text-xs text-muted-foreground">Lê o nome e preço do produto em voz alta</p>
+        </div>
+        <Switch checked={ttsEnabled} onCheckedChange={async (checked) => {
+          setTtsEnabled(checked);
+          const { error } = await supabase.from("terminal_config")
+            .upsert({ chave: "tts_enabled", valor: String(checked), atualizado_em: new Date().toISOString() }, { onConflict: "chave" });
+          if (error) toast.error("Erro ao salvar"); else toast.success("Configuração salva");
+        }} />
       </div>
 
       <input
