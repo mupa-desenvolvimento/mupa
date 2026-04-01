@@ -11,6 +11,7 @@ import CatalogoPage from "./pages/CatalogoPage";
 import SyncPage from "./pages/SyncPage";
 import ImagensPage from "./pages/ImagensPage";
 import DocsPage from "./pages/DocsPage";
+import TerminalMediaPage from "./pages/TerminalMediaPage";
 import TerminalPage from "./pages/TerminalPage";
 import NotFound from "./pages/NotFound";
 
