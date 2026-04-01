@@ -698,7 +698,7 @@ export default function TerminalPage() {
                   style={{ maxWidth: imgSize, maxHeight: imgSize }} />
               ) : (
                 <div className="terminal-no-image-large" style={{ width: imgSize, height: imgSize }}>
-                  <Barcode className="w-20 h-20 text-white/30" />
+                  <Barcode className="w-20 h-20 text-black/15" />
                 </div>
               )}
             </motion.div>
