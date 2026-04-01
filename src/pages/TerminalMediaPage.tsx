@@ -644,6 +644,14 @@ export default function TerminalMediaPage() {
               saveConfig("tts_enabled", String(checked));
             }} />
           </div>
+
+          <div className="flex justify-end pt-2">
+            <Button variant="ghost" size="sm" onClick={resetConfigs} className="text-xs gap-1.5">
+              <RotateCcw className="w-3.5 h-3.5" />
+              Resetar Configurações
+            </Button>
+          </div>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
