@@ -200,6 +200,42 @@ export type Database = {
         }
         Relationships: []
       }
+      terminal_media: {
+        Row: {
+          ativo: boolean
+          criado_em: string
+          duracao_segundos: number
+          id: string
+          nome: string
+          ordem: number
+          storage_path: string
+          tipo: string
+          url: string
+        }
+        Insert: {
+          ativo?: boolean
+          criado_em?: string
+          duracao_segundos?: number
+          id?: string
+          nome: string
+          ordem?: number
+          storage_path: string
+          tipo: string
+          url: string
+        }
+        Update: {
+          ativo?: boolean
+          criado_em?: string
+          duracao_segundos?: number
+          id?: string
+          nome?: string
+          ordem?: number
+          storage_path?: string
+          tipo?: string
+          url?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
