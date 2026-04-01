@@ -443,6 +443,7 @@ export default function TerminalPage() {
     idleTimerRef.current = setTimeout(() => {
       setProduto(null); setSugestoes(null); setEan(""); setError(null);
       setTheme(null);
+      if (currentAudioRef.current) { currentAudioRef.current.pause(); currentAudioRef.current = null; }
       inputRef.current?.focus();
     }, 30_000);
   }, []);
