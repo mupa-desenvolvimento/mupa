@@ -768,7 +768,7 @@ export default function TerminalPage() {
                       {s.imagem_url_vtex ? (
                         <img src={s.imagem_url_vtex} alt={s.nome} className="terminal-suggestion-img" />
                       ) : (
-                        <div className="terminal-suggestion-noimg"><Barcode className="w-6 h-6 text-white/20" /></div>
+                        <div className="terminal-suggestion-noimg"><Barcode className="w-6 h-6 text-black/15" /></div>
                       )}
                       <p className="terminal-suggestion-name" style={{ color: t.textMuted }}>{s.nome_curto || s.nome}</p>
                       {s.preco && <p className="terminal-suggestion-price" style={{ color: t.textColor }}>R$ {s.preco.toFixed(2)}</p>}
