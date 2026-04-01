@@ -37,6 +37,18 @@ const sections: { title: string; endpoints: Endpoint[] }[] = [
     ],
   },
   {
+    title: "💡 Sugestões de Produtos Similares",
+    endpoints: [
+      {
+        method: "GET",
+        path: `${BASE_URL}/api-sugestoes?ean=7894900027013`,
+        description: "Retorna produtos similares da mesma categoria (ex: outros refrigerantes)",
+        params: "?ean=CODIGO&limit=6",
+        example: "Busca Coca-Cola 2L → sugere Pepsi, Sprite, Fruki e outros refrigerantes",
+      },
+    ],
+  },
+  {
     title: "Sincronização",
     endpoints: [
       {
