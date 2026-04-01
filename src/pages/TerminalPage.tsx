@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Search, Barcode } from "lucide-react";
 
@@ -34,7 +34,71 @@ export default function TerminalPage() {
   const [sugestoes, setSugestoes] = useState<Sugestoes | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Auto-fullscreen on mount & track fullscreen state
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const enterFs = async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await el.requestFullscreen();
+        }
+      } catch {}
+    };
+
+    // Try auto-enter; browsers may block without user gesture
+    enterFs();
+
+    const onFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  // Reset to idle after 30s of inactivity when a product is shown
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => {
+      setProduto(null);
+      setSugestoes(null);
+      setEan("");
+      setError(null);
+      inputRef.current?.focus();
+    }, 30_000);
+  }, []);
+
+  useEffect(() => {
+    if (produto) resetIdleTimer();
+    return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
+  }, [produto, resetIdleTimer]);
+
+  // Reset idle timer on any interaction
+  useEffect(() => {
+    const handler = () => { if (produto) resetIdleTimer(); };
+    window.addEventListener("pointerdown", handler);
+    window.addEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("pointerdown", handler);
+      window.removeEventListener("keydown", handler);
+    };
+  }, [produto, resetIdleTimer]);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await containerRef.current?.requestFullscreen();
+      }
+    } catch {}
+  };
 
   const consultar = async (code?: string) => {
     const searchEan = code || ean.trim();
@@ -86,7 +150,21 @@ export default function TerminalPage() {
     : [];
 
   return (
-    <div className="terminal-page">
+    <div ref={containerRef} className="terminal-page" style={{ cursor: "none" }}>
+      {/* Fullscreen toggle */}
+      <button
+        onClick={toggleFullscreen}
+        className="absolute top-3 right-3 z-50 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/70 transition-colors"
+        style={{ background: "rgba(255,255,255,0.05)" }}
+        title={isFullscreen ? "Sair do fullscreen" : "Entrar em fullscreen"}
+      >
+        {isFullscreen ? (
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        ) : (
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        )}
+      </button>
+
       {/* Blob shapes background */}
       <div className="terminal-blob terminal-blob-1" />
       <div className="terminal-blob terminal-blob-2" />
