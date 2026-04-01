@@ -718,10 +718,10 @@ export default function TerminalPage() {
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.4, delay: 0.25, ease: "easeOut" }}
             >
-              <h1 className="terminal-product-name" style={{ fontSize: fontNome, color: t.textColor }}>
+              <h1 className="terminal-product-name" style={{ fontSize: fontNome, color: t.bannerTextColor, transition: "color 0.8s ease" }}>
                 {produto.nome_curto || produto.nome}
               </h1>
-              {produto.marca && <p className="terminal-product-brand" style={{ color: t.textMuted }}>{produto.marca}</p>}
+              {produto.marca && <p className="terminal-product-brand" style={{ color: t.bannerTextMuted, transition: "color 0.8s ease" }}>{produto.marca}</p>}
             </motion.div>
 
             <motion.div className="terminal-price-area" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.35 }}>
