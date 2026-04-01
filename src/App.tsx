@@ -31,6 +31,7 @@ const App = () => (
               <Route path="/sync" element={<SyncPage />} />
               <Route path="/imagens" element={<ImagensPage />} />
               <Route path="/docs" element={<DocsPage />} />
+              <Route path="/terminal-media" element={<TerminalMediaPage />} />
             </Route>
             <Route path="/terminal" element={<TerminalPage />} />
             <Route path="*" element={<NotFound />} />
