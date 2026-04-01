@@ -389,6 +389,10 @@ export default function TerminalMediaPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={notifyTerminal}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Atualizar Terminal
+          </Button>
           <a href="/terminal" target="_blank" rel="noopener noreferrer">
             <Button variant="outline" size="sm">
               <ExternalLink className="w-4 h-4 mr-2" />
