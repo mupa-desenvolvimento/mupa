@@ -221,7 +221,10 @@
   }
 
   .terminal-product-area {
-    @apply relative z-10 flex flex-col items-center w-full max-w-md mx-auto px-4 pb-4 flex-1 pt-4;
+    @apply relative z-10 flex flex-col items-center w-full mx-auto px-4 pb-2 pt-2;
+    height: 100%;
+    max-height: 100vh;
+    overflow: hidden;
   }
 
   /* Large product image at the top - OUTSIDE the main container */
@@ -248,8 +251,9 @@
 
   /* MAIN COLORED CONTAINER - wraps all info below image */
   .terminal-main-container {
-    @apply w-full rounded-3xl px-5 pt-14 pb-5 flex flex-col items-center relative z-10;
+    @apply w-full rounded-3xl px-5 pt-14 pb-4 flex flex-col items-center relative z-10 flex-1;
     box-shadow: 0 4px 30px rgba(0,0,0,0.08);
+    overflow: hidden;
   }
 
   /* Description sub-card (white/translucent inside main container) */
@@ -355,20 +359,20 @@
   }
 
   .terminal-suggestions {
-    @apply w-full mt-8;
+    @apply w-full mt-4 flex-1;
   }
 
   .terminal-suggestions-title {
-    @apply text-sm font-semibold uppercase tracking-wider mb-3 text-center;
+    @apply text-base font-semibold uppercase tracking-wider mb-3 text-center;
     color: rgba(0,0,0,0.4);
   }
 
   .terminal-suggestions-grid {
-    @apply grid grid-cols-3 gap-2;
+    @apply grid grid-cols-3 gap-3;
   }
 
   .terminal-suggestion-card {
-    @apply flex flex-col items-center p-2 rounded-xl transition-all text-center;
+    @apply flex flex-col items-center p-3 rounded-2xl transition-all text-center;
     background: rgba(0,0,0,0.03);
     border: 1px solid rgba(0,0,0,0.06);
   }
@@ -378,20 +382,20 @@
   }
 
   .terminal-suggestion-img {
-    @apply w-14 h-14 object-contain mb-1;
+    @apply w-20 h-20 object-contain mb-2;
   }
 
   .terminal-suggestion-noimg {
-    @apply w-14 h-14 flex items-center justify-center;
+    @apply w-20 h-20 flex items-center justify-center;
   }
 
   .terminal-suggestion-name {
-    @apply text-[10px] leading-tight line-clamp-2;
+    @apply text-xs leading-tight line-clamp-2;
     color: rgba(0,0,0,0.55);
   }
 
   .terminal-suggestion-price {
-    @apply font-bold text-xs mt-1;
+    @apply font-bold text-sm mt-1;
     color: #1a1a1a;
   }
 
@@ -470,7 +474,15 @@
     }
 
     .terminal-suggestion-img {
-      @apply w-16 h-16;
+      @apply w-20 h-20;
+    }
+
+    .terminal-suggestion-name {
+      @apply text-sm;
+    }
+
+    .terminal-suggestion-price {
+      @apply text-base;
     }
   }
 }
