@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
     }
 
     // Cache key based on content
-    const cacheKey = `${nome}|${preco}|${isOferta ? "1" : "0"}|${incluirSugestao ? "1" : "0"}`;
+    const cacheKey = `${preco}|${isOferta ? "1" : "0"}|${incluirSugestao ? "1" : "0"}`;
     
     // Check cache
     const { data: cached } = await supabase
