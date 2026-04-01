@@ -37,14 +37,20 @@ const sections: { title: string; endpoints: Endpoint[] }[] = [
     ],
   },
   {
-    title: "💡 Sugestões de Produtos Similares",
+    title: "💡 Sugestões Inteligentes com IA",
     endpoints: [
       {
         method: "GET",
         path: `${BASE_URL}/api-sugestoes?ean=7894900027013`,
-        description: "Retorna produtos similares da mesma categoria (ex: outros refrigerantes)",
-        params: "?ean=CODIGO&limit=6",
-        example: "Busca Coca-Cola 2L → sugere Pepsi, Sprite, Fruki e outros refrigerantes",
+        description: "Sugestões agrupadas: mesma_marca + complementares (IA cross-sell) + perfil demográfico",
+        params: "?ean=CODIGO&limit=6&idade=25&genero=masculino",
+        example: "Retorna 3 seções: mesma_marca, complementares (IA sugere categorias combinadas), perfil (opcional, se idade/gênero informados)",
+      },
+      {
+        method: "GET",
+        path: `${BASE_URL}/api-sugestoes?ean=7894900027013&idade=30&genero=feminino`,
+        description: "Com perfil demográfico — IA sugere produtos relevantes para idade e gênero",
+        example: "Mulher 30 anos + Coca-Cola → IA pode sugerir água, suco, biscoito, salada",
       },
     ],
   },
