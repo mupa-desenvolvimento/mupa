@@ -93,8 +93,8 @@ Deno.serve(async (req) => {
   const nome = url.searchParams.get("nome") || "";
   const incluirSugestao = url.searchParams.get("sugestao") === "true";
 
-  if (!preco || !nome) {
-    return new Response(JSON.stringify({ error: "Informe ?preco=X&nome=Y" }), {
+  if (!preco) {
+    return new Response(JSON.stringify({ error: "Informe ?preco=X" }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -103,13 +103,13 @@ Deno.serve(async (req) => {
     const isOferta = precoLista > 0 && precoLista > preco;
     const precoTexto = formatPrecoTexto(preco);
 
-    // Build the spoken text
+    // Build the spoken text - only price, no product name
     let texto = "";
     if (isOferta) {
       const frase = FRASES_OFERTA[Math.floor(Math.random() * FRASES_OFERTA.length)];
-      texto = `${frase} ${nome}, por apenas ${precoTexto}.`;
+      texto = `${frase} Por apenas ${precoTexto}.`;
     } else {
-      texto = `${nome}, ${precoTexto}.`;
+      texto = `${precoTexto}.`;
     }
 
     if (incluirSugestao) {
@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
     }
 
     // Cache key based on content
-    const cacheKey = `${nome}|${preco}|${isOferta ? "1" : "0"}|${incluirSugestao ? "1" : "0"}`;
+    const cacheKey = `${preco}|${isOferta ? "1" : "0"}|${incluirSugestao ? "1" : "0"}`;
     
     // Check cache
     const { data: cached } = await supabase
