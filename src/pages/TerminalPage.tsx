@@ -668,8 +668,8 @@ export default function TerminalPage() {
           <motion.div className="terminal-error" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}>
             <p className="text-2xl font-bold" style={{ color: t.textColor }}>{error}</p>
             <p className="mt-2" style={{ color: t.textMuted }}>Verifique o código e tente novamente</p>
-            <motion.div className="mt-4 h-1 rounded-full overflow-hidden w-48 mx-auto" style={{ background: "rgba(255,255,255,0.15)" }}>
-              <motion.div className="h-full rounded-full" style={{ background: "rgba(255,255,255,0.4)" }}
+            <motion.div className="mt-4 h-1 rounded-full overflow-hidden w-48 mx-auto" style={{ background: "rgba(0,0,0,0.08)" }}>
+              <motion.div className="h-full rounded-full" style={{ background: "rgba(0,0,0,0.25)" }}
                 initial={{ width: "100%" }} animate={{ width: "0%" }} transition={{ duration: 3, ease: "linear" }} />
             </motion.div>
           </motion.div>
