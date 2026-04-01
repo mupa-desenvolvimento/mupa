@@ -584,7 +584,7 @@ export default function TerminalPage() {
       const prod = prodData.produto;
       setProduto(prod);
 
-      if (ttsEnabled && prod.preco) speakPrice(prod.preco, prod.nome_curto || prod.nome, prod.preco_lista, true);
+      if (ttsEnabled && prod.preco) speakPrice(prod.preco, prod.preco_lista, tipoSugestao);
 
       if (corAutoEnabled && prod.imagem_url_vtex) {
         generateThemeFromImage(prod.imagem_url_vtex).then(t => setTheme(t));
