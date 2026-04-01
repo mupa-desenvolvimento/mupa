@@ -275,7 +275,7 @@ export default function TerminalPage() {
       setProduto(prod);
 
       // Speak the price
-      if (prod.preco) {
+      if (ttsEnabled && prod.preco) {
         speakPrice(prod.preco, prod.nome_curto || prod.nome);
       }
 
