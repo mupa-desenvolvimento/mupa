@@ -7,7 +7,8 @@ const corsHeaders = {
 
 const RISSUL_API = "https://www.rissul.com.br/api/catalog_system/pub/products/search";
 const BATCH_SIZE = 50;
-const DELAY_MS = 1500;
+const DELAY_MS = 800;
+const MAX_EXECUTION_MS = 120_000; // 2 min safety margin
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -20,42 +21,97 @@ Deno.serve(async (req) => {
   );
 
   try {
-    // Create sync log entry
-    const { data: syncLog, error: logErr } = await supabase
+    // Check for incomplete sync to resume
+    const { data: pendingSync } = await supabase
       .from("sync_log")
-      .insert({ status: "running", iniciado_em: new Date().toISOString() })
-      .select()
+      .select("*")
+      .eq("status", "running")
+      .order("iniciado_em", { ascending: false })
+      .limit(1)
       .single();
 
-    if (logErr) throw logErr;
-
+    let syncLog: any;
     let offset = 0;
     let totalProcessed = 0;
-    let novos = 0;
-    let atualizados = 0;
-    const categoriaSet = new Map<string, { nome: string; caminho: string }>();
-    const marcaSet = new Set<string>();
+
+    if (pendingSync) {
+      // Resume from where we left off
+      syncLog = pendingSync;
+      offset = pendingSync.current_offset ?? 0;
+      totalProcessed = pendingSync.total_produtos ?? 0;
+      console.log(`Resuming sync from offset ${offset}, ${totalProcessed} already processed`);
+    } else {
+      // Start new sync
+      const { data, error } = await supabase
+        .from("sync_log")
+        .insert({ status: "running", iniciado_em: new Date().toISOString(), current_offset: 0 })
+        .select()
+        .single();
+      if (error) throw error;
+      syncLog = data;
+    }
+
+    const startTime = Date.now();
+    let emptyBatches = 0;
 
     while (true) {
+      // Time check
+      if (Date.now() - startTime > MAX_EXECUTION_MS) {
+        console.log(`Time limit reached at offset ${offset}. Will resume next run.`);
+        await supabase
+          .from("sync_log")
+          .update({ current_offset: offset, total_produtos: totalProcessed })
+          .eq("id", syncLog.id);
+        
+        // Auto-invoke next run
+        try {
+          const url = Deno.env.get("SUPABASE_URL") + "/functions/v1/sync-produtos";
+          fetch(url, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`,
+              "Content-Type": "application/json",
+            },
+          }).catch(() => {});
+        } catch {}
+
+        return new Response(
+          JSON.stringify({ success: true, status: "partial", total: totalProcessed, offset }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       const url = `${RISSUL_API}?_from=${offset}&_to=${offset + BATCH_SIZE - 1}`;
       const res = await fetch(url, {
-        headers: {
-          "Accept": "application/json",
-          "User-Agent": "MupaCatalog/1.0",
-        },
+        headers: { "Accept": "application/json", "User-Agent": "MupaCatalog/1.0" },
       });
 
       if (!res.ok) {
         console.log(`API returned ${res.status} at offset ${offset}`);
-        break;
+        if (res.status === 429) {
+          await new Promise((r) => setTimeout(r, 3000));
+          continue;
+        }
+        emptyBatches++;
+        if (emptyBatches >= 3) break;
+        offset += BATCH_SIZE;
+        continue;
       }
 
       const produtos = await res.json();
-      if (!Array.isArray(produtos) || produtos.length === 0) break;
+      if (!Array.isArray(produtos) || produtos.length === 0) {
+        emptyBatches++;
+        if (emptyBatches >= 3) break;
+        offset += BATCH_SIZE;
+        continue;
+      }
 
+      emptyBatches = 0;
+
+      // Batch collect records
+      const records: any[] = [];
       for (const produto of produtos) {
         const items = produto.items ?? [];
-
         for (const item of items) {
           const ean = item.ean ?? item.itemId;
           if (!ean) continue;
@@ -63,28 +119,15 @@ Deno.serve(async (req) => {
           const categorias = produto.categories ?? [];
           const categoria = categorias[0] ?? "";
           const categoriaId = produto.categoryId ?? "";
-
-          if (categoriaId && categoria) {
-            categoriaSet.set(categoriaId, {
-              nome: categoria.split("/").filter(Boolean).pop() ?? categoria,
-              caminho: categoria,
-            });
-          }
-
-          if (produto.brand) marcaSet.add(produto.brand);
-
           const sellers = item.sellers ?? [];
           const offer = sellers[0]?.commertialOffer;
           const preco = offer?.Price ?? null;
           const precoLista = offer?.ListPrice ?? null;
           const disponivel = offer?.IsAvailable ?? (offer?.AvailableQuantity > 0) ?? true;
-
           const images = item.images ?? [];
           const imgUrl = images[0]?.imageUrl ?? null;
 
-          const azureUrl = `https://sabancoimagenspng.blob.core.windows.net/png1000x1000/${ean}_1.png?sp=rl&st=2025-09-16T14:13:08Z&se=2026-03-16T22:28:08Z&spr=https&sv=2024-11-04&sr=c&sig=55doi7f%2F1M89ZfIPim7tR98%2BHEZJOWr8Ll5ygGkvqMg%3D`;
-
-          const record = {
+          records.push({
             product_id: String(produto.productId),
             ean: String(ean),
             nome: produto.productName ?? item.name ?? "Sem nome",
@@ -102,85 +145,87 @@ Deno.serve(async (req) => {
             preco_lista: precoLista,
             disponivel,
             imagem_url_vtex: imgUrl,
-            imagem_url_azure: azureUrl,
+            imagem_url_azure: `https://sabancoimagenspng.blob.core.windows.net/png1000x1000/${ean}_1.png?sp=rl&st=2025-09-16T14:13:08Z&se=2026-03-16T22:28:08Z&spr=https&sv=2024-11-04&sr=c&sig=55doi7f%2F1M89ZfIPim7tR98%2BHEZJOWr8Ll5ygGkvqMg%3D`,
             imagem_baixada: false,
-          };
-
-          const { error: upsertErr, data: upsertData } = await supabase
-            .from("produtos")
-            .upsert(record, { onConflict: "ean" })
-            .select("id")
-            .single();
-
-          if (upsertErr) {
-            console.error(`Upsert error for EAN ${ean}:`, upsertErr.message);
-          } else {
-            // Rough heuristic: if it was just created vs updated
-            totalProcessed++;
-          }
+          });
         }
       }
 
-      // Update sync progress
+      // Batch upsert
+      if (records.length > 0) {
+        const { error: upsertErr } = await supabase
+          .from("produtos")
+          .upsert(records, { onConflict: "ean" });
+        if (upsertErr) {
+          console.error(`Batch upsert error at offset ${offset}:`, upsertErr.message);
+        } else {
+          totalProcessed += records.length;
+        }
+      }
+
+      // Save progress
       await supabase
         .from("sync_log")
-        .update({ total_produtos: totalProcessed })
+        .update({ current_offset: offset + BATCH_SIZE, total_produtos: totalProcessed })
         .eq("id", syncLog.id);
 
       offset += BATCH_SIZE;
-
-      // Delay to avoid rate limiting
       await new Promise((r) => setTimeout(r, DELAY_MS));
-
-      // Safety: stop after 10000 products to avoid timeout
-      if (totalProcessed > 10000) break;
     }
 
-    // Save categories
-    for (const [id, cat] of categoriaSet) {
-      await supabase
-        .from("categorias")
-        .upsert({ id, nome: cat.nome, caminho: cat.caminho, total_produtos: 0 }, { onConflict: "id" });
+    // Sync complete — update categories & brands
+    const { data: allProds } = await supabase
+      .from("produtos")
+      .select("categoria_id, categoria, marca")
+      .not("categoria_id", "is", null);
+
+    const catMap = new Map<string, string>();
+    const brandSet = new Set<string>();
+    const catCount = new Map<string, number>();
+    const brandCount = new Map<string, number>();
+
+    for (const p of allProds ?? []) {
+      if (p.categoria_id) {
+        catMap.set(p.categoria_id, p.categoria ?? "");
+        catCount.set(p.categoria_id, (catCount.get(p.categoria_id) ?? 0) + 1);
+      }
+      if (p.marca) {
+        brandSet.add(p.marca);
+        brandCount.set(p.marca, (brandCount.get(p.marca) ?? 0) + 1);
+      }
     }
 
-    // Save brands
-    for (const marca of marcaSet) {
-      await supabase
-        .from("marcas")
-        .upsert({ nome: marca, total_produtos: 0 }, { onConflict: "nome" });
+    const catRecords = [...catMap.entries()].map(([id, cat]) => ({
+      id,
+      nome: cat.split("/").filter(Boolean).pop() ?? cat,
+      caminho: cat,
+      total_produtos: catCount.get(id) ?? 0,
+    }));
+    if (catRecords.length > 0) {
+      await supabase.from("categorias").upsert(catRecords, { onConflict: "id" });
     }
 
-    // Update category/brand counts
-    for (const [id] of categoriaSet) {
-      const { count } = await supabase
-        .from("produtos")
-        .select("*", { count: "exact", head: true })
-        .eq("categoria_id", id);
-      await supabase.from("categorias").update({ total_produtos: count ?? 0 }).eq("id", id);
+    const brandRecords = [...brandSet].map((nome) => ({
+      nome,
+      total_produtos: brandCount.get(nome) ?? 0,
+    }));
+    if (brandRecords.length > 0) {
+      await supabase.from("marcas").upsert(brandRecords, { onConflict: "nome" });
     }
 
-    for (const marca of marcaSet) {
-      const { count } = await supabase
-        .from("produtos")
-        .select("*", { count: "exact", head: true })
-        .eq("marca", marca);
-      await supabase.from("marcas").update({ total_produtos: count ?? 0 }).eq("nome", marca);
-    }
-
-    // Finalize sync log
+    // Finalize
     await supabase
       .from("sync_log")
       .update({
         status: "success",
         finalizado_em: new Date().toISOString(),
         total_produtos: totalProcessed,
-        produtos_novos: totalProcessed, // simplified
-        produtos_atualizados: 0,
+        current_offset: offset,
       })
       .eq("id", syncLog.id);
 
     return new Response(
-      JSON.stringify({ success: true, total: totalProcessed }),
+      JSON.stringify({ success: true, status: "complete", total: totalProcessed }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
