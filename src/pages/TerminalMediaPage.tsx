@@ -311,6 +311,34 @@ export default function TerminalMediaPage() {
         </Select>
       </div>
 
+      <div className="stat-card !p-4 flex items-center gap-4">
+        <Bell className="w-5 h-5 text-muted-foreground shrink-0" />
+        <div className="flex-1">
+          <p className="text-sm font-medium">Bipe ao Consultar</p>
+          <p className="text-xs text-muted-foreground">Toca um som ao bipar um código de barras</p>
+        </div>
+        <Switch checked={beepEnabled} onCheckedChange={async (checked) => {
+          setBeepEnabled(checked);
+          const { error } = await supabase.from("terminal_config")
+            .upsert({ chave: "beep_enabled", valor: String(checked), atualizado_em: new Date().toISOString() }, { onConflict: "chave" });
+          if (error) toast.error("Erro ao salvar"); else toast.success("Configuração salva");
+        }} />
+      </div>
+
+      <div className="stat-card !p-4 flex items-center gap-4">
+        <Volume2 className="w-5 h-5 text-muted-foreground shrink-0" />
+        <div className="flex-1">
+          <p className="text-sm font-medium">Falar Preço (TTS)</p>
+          <p className="text-xs text-muted-foreground">Lê o nome e preço do produto em voz alta</p>
+        </div>
+        <Switch checked={ttsEnabled} onCheckedChange={async (checked) => {
+          setTtsEnabled(checked);
+          const { error } = await supabase.from("terminal_config")
+            .upsert({ chave: "tts_enabled", valor: String(checked), atualizado_em: new Date().toISOString() }, { onConflict: "chave" });
+          if (error) toast.error("Erro ao salvar"); else toast.success("Configuração salva");
+        }} />
+      </div>
+
       <input
         ref={fileInputRef}
         type="file"
