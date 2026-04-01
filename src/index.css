@@ -474,7 +474,15 @@
     }
 
     .terminal-suggestion-img {
-      @apply w-16 h-16;
+      @apply w-20 h-20;
+    }
+
+    .terminal-suggestion-name {
+      @apply text-sm;
+    }
+
+    .terminal-suggestion-price {
+      @apply text-base;
     }
   }
 }
