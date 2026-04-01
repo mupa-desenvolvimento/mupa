@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Upload, Trash2, GripVertical, Image, Video, ExternalLink, Settings } from "lucide-react";
+import { Upload, Trash2, GripVertical, Image, Video, ExternalLink, Settings, Volume2, Bell } from "lucide-react";
 import {
   DndContext,
   closestCenter,
