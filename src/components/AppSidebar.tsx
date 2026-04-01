@@ -8,6 +8,7 @@ import {
   Monitor,
   Zap,
   LogOut,
+  Smartphone,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
