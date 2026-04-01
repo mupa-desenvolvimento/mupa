@@ -100,6 +100,33 @@ export default function TerminalPage() {
     };
   }, [produto, resetIdleTimer]);
 
+  // Fetch terminal media
+  useEffect(() => {
+    const fetchMedia = async () => {
+      const { data } = await supabase
+        .from("terminal_media")
+        .select("id, tipo, url, duracao_segundos")
+        .eq("ativo", true)
+        .order("ordem", { ascending: true });
+      if (data) setMediaList(data as MediaItem[]);
+    };
+    fetchMedia();
+  }, []);
+
+  // Slideshow timer — advances media when idle
+  const isIdle = !produto && !loading && !error;
+  useEffect(() => {
+    if (!isIdle || mediaList.length <= 1) return;
+    const current = mediaList[currentMediaIndex];
+    if (!current || current.tipo === "video") return; // videos advance on ended
+
+    const timer = setTimeout(() => {
+      setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length);
+    }, current.duracao_segundos * 1000);
+
+    return () => clearTimeout(timer);
+  }, [isIdle, currentMediaIndex, mediaList]);
+
   const toggleFullscreen = async () => {
     try {
       if (document.fullscreenElement) {
