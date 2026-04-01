@@ -136,6 +136,7 @@ export type Database = {
       }
       sync_log: {
         Row: {
+          current_offset: number | null
           erro: string | null
           finalizado_em: string | null
           id: string
@@ -147,6 +148,7 @@ export type Database = {
           total_produtos: number | null
         }
         Insert: {
+          current_offset?: number | null
           erro?: string | null
           finalizado_em?: string | null
           id?: string
@@ -158,6 +160,7 @@ export type Database = {
           total_produtos?: number | null
         }
         Update: {
+          current_offset?: number | null
           erro?: string | null
           finalizado_em?: string | null
           id?: string
