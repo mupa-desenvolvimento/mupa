@@ -649,8 +649,6 @@ export default function TerminalMediaPage() {
             <Button variant="ghost" size="sm" onClick={resetConfigs} className="text-xs gap-1.5">
               <RotateCcw className="w-3.5 h-3.5" />
               Resetar Configurações
-            </Button>
-          </div>
           </div>
         </TabsContent>
       </Tabs>
