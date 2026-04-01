@@ -46,6 +46,7 @@ export default function TerminalPage() {
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
   const [tipoSugestao, setTipoSugestao] = useState<string>("complementares");
+  const [inputFocused, setInputFocused] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
