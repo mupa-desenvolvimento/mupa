@@ -199,25 +199,7 @@
     top: 40%; right: -60px;
   }
 
-  .terminal-search {
-    @apply relative z-10 flex items-center gap-3 w-full max-w-lg mx-auto mt-6 px-4 py-3 rounded-2xl;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(12px);
-  }
-
-  .terminal-input {
-    @apply flex-1 bg-transparent text-white text-base outline-none placeholder:text-white/30;
-    font-family: var(--font-body);
-  }
-
-  .terminal-search-btn {
-    @apply shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-white transition-all;
-    background: linear-gradient(135deg, #c0392b, #96281b);
-  }
-  .terminal-search-btn:hover {
-    transform: scale(1.05);
-  }
+  /* Search bar removed — hidden input used instead */
 
   .terminal-loading {
     @apply relative z-10 flex flex-col items-center justify-center flex-1 mt-20;
