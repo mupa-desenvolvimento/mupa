@@ -420,21 +420,23 @@ export default function TerminalPage() {
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.3 }}
           >
-            {/* Image on top — large */}
+            {/* Image on top — dynamic size */}
             <motion.div
               className="terminal-product-image-top"
               initial={{ scale: 0.5, opacity: 0, y: 40 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.1, type: "spring", stiffness: 200, damping: 20 }}
+              style={{ width: imgSize, height: imgSize }}
             >
               {produto.imagem_url_vtex ? (
                 <img
                   src={produto.imagem_url_vtex}
                   alt={produto.nome}
                   className="terminal-product-image-large"
+                  style={{ maxWidth: imgSize, maxHeight: imgSize }}
                 />
               ) : (
-                <div className="terminal-no-image-large">
+                <div className="terminal-no-image-large" style={{ width: imgSize, height: imgSize }}>
                   <Barcode className="w-20 h-20 text-white/30" />
                 </div>
               )}
