@@ -36,6 +36,51 @@ interface MediaItem {
 
 const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 
+// Extract dominant color from image using canvas
+function extractDominantColor(imgUrl: string): Promise<{ r: number; g: number; b: number } | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        const size = 50;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(null); return; }
+        ctx.drawImage(img, 0, 0, size, size);
+        const data = ctx.getImageData(0, 0, size, size).data;
+        let r = 0, g = 0, b = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          // Skip near-white and near-black pixels (background)
+          const pr = data[i], pg = data[i + 1], pb = data[i + 2], pa = data[i + 3];
+          if (pa < 128) continue;
+          if (pr > 230 && pg > 230 && pb > 230) continue;
+          if (pr < 25 && pg < 25 && pb < 25) continue;
+          r += pr; g += pg; b += pb; count++;
+        }
+        if (count === 0) { resolve(null); return; }
+        resolve({ r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count) });
+      } catch { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = imgUrl;
+  });
+}
+
+function darken(r: number, g: number, b: number, factor = 0.3) {
+  return { r: Math.round(r * factor), g: Math.round(g * factor), b: Math.round(b * factor) };
+}
+
+function lighten(r: number, g: number, b: number, factor = 0.3) {
+  return {
+    r: Math.round(r + (255 - r) * factor),
+    g: Math.round(g + (255 - g) * factor),
+    b: Math.round(b + (255 - b) * factor),
+  };
+}
+
 export default function TerminalPage() {
   const [ean, setEan] = useState("");
   const [produto, setProduto] = useState<Produto | null>(null);
@@ -54,49 +99,41 @@ export default function TerminalPage() {
   const [fontPreco, setFontPreco] = useState(72);
   const [imgSize, setImgSize] = useState(280);
   const [maxSugestoes, setMaxSugestoes] = useState(3);
+  // Color configs
+  const [corAutoEnabled, setCorAutoEnabled] = useState(true);
+  const [corFundo, setCorFundo] = useState("#1a0a0a");
+  const [corDescricao, setCorDescricao] = useState("#c0392b");
+  const [corPreco, setCorPreco] = useState("#ffffff");
+  const [wavesEnabled, setWavesEnabled] = useState(false);
+  // Dynamic colors extracted from product image
+  const [dynamicBg, setDynamicBg] = useState<string | null>(null);
+  const [dynamicDescBg, setDynamicDescBg] = useState<string | null>(null);
+  const [dynamicPriceColor, setDynamicPriceColor] = useState<string | null>(null);
+  const [dynamicWaveColor, setDynamicWaveColor] = useState<string | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Wake Lock — prevent screen sleep on Android
+  // Wake Lock
   useEffect(() => {
     let wakeLock: WakeLockSentinel | null = null;
-
     const requestWakeLock = async () => {
-      try {
-        if ("wakeLock" in navigator) {
-          wakeLock = await navigator.wakeLock.request("screen");
-        }
-      } catch {}
+      try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); } catch {}
     };
-
     requestWakeLock();
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") requestWakeLock();
-    };
+    const onVisibilityChange = () => { if (document.visibilityState === "visible") requestWakeLock(); };
     document.addEventListener("visibilitychange", onVisibilityChange);
-
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      wakeLock?.release();
-    };
+    return () => { document.removeEventListener("visibilitychange", onVisibilityChange); wakeLock?.release(); };
   }, []);
 
-  // Auto-fullscreen on mount & track fullscreen state
+  // Auto-fullscreen
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-
-    const enterFs = async () => {
-      try {
-        if (!document.fullscreenElement) {
-          await el.requestFullscreen();
-        }
-      } catch {}
-    };
+    const enterFs = async () => { try { if (!document.fullscreenElement) await el.requestFullscreen(); } catch {} };
     enterFs();
-
     const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", onFsChange);
     return () => document.removeEventListener("fullscreenchange", onFsChange);
@@ -104,9 +141,7 @@ export default function TerminalPage() {
 
   // Fetch terminal config
   const loadConfig = useCallback(async () => {
-    const { data } = await supabase
-      .from("terminal_config")
-      .select("chave, valor");
+    const { data } = await supabase.from("terminal_config").select("chave, valor");
     if (data) {
       for (const row of data) {
         switch (row.chave) {
@@ -117,6 +152,11 @@ export default function TerminalPage() {
           case "font_preco": setFontPreco(Number(row.valor) || 72); break;
           case "img_size": setImgSize(Number(row.valor) || 280); break;
           case "max_sugestoes": setMaxSugestoes(Number(row.valor) ?? 3); break;
+          case "cor_auto": setCorAutoEnabled(row.valor !== "false"); break;
+          case "cor_fundo": setCorFundo(row.valor); break;
+          case "cor_descricao": setCorDescricao(row.valor); break;
+          case "cor_preco": setCorPreco(row.valor); break;
+          case "waves_enabled": setWavesEnabled(row.valor === "true"); break;
         }
       }
     }
@@ -124,41 +164,31 @@ export default function TerminalPage() {
 
   useEffect(() => { loadConfig(); }, [loadConfig]);
 
-  // Realtime: reload config when changed from admin
+  // Realtime config
   useEffect(() => {
-    const channel = supabase
-      .channel("terminal-config-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "terminal_config" }, () => {
-        loadConfig();
-      })
+    const channel = supabase.channel("terminal-config-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "terminal_config" }, () => loadConfig())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [loadConfig]);
 
-  // Realtime: reload media when changed from admin
+  // Realtime media
   useEffect(() => {
-    const channel = supabase
-      .channel("terminal-media-changes")
+    const channel = supabase.channel("terminal-media-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "terminal_media" }, async () => {
-        const { data } = await supabase
-          .from("terminal_media")
-          .select("id, tipo, url, duracao_segundos")
-          .eq("ativo", true)
-          .order("ordem", { ascending: true });
+        const { data } = await supabase.from("terminal_media").select("id, tipo, url, duracao_segundos")
+          .eq("ativo", true).order("ordem", { ascending: true });
         if (data) setMediaList(data as MediaItem[]);
-      })
-      .subscribe();
+      }).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Reset to idle after 30s of inactivity
+  // Idle timer (30s)
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     idleTimerRef.current = setTimeout(() => {
-      setProduto(null);
-      setSugestoes(null);
-      setEan("");
-      setError(null);
+      setProduto(null); setSugestoes(null); setEan(""); setError(null);
+      setDynamicBg(null); setDynamicDescBg(null); setDynamicPriceColor(null); setDynamicWaveColor(null);
       inputRef.current?.focus();
     }, 30_000);
   }, []);
@@ -172,20 +202,25 @@ export default function TerminalPage() {
     const handler = () => { if (produto) resetIdleTimer(); };
     window.addEventListener("pointerdown", handler);
     window.addEventListener("keydown", handler);
-    return () => {
-      window.removeEventListener("pointerdown", handler);
-      window.removeEventListener("keydown", handler);
-    };
+    return () => { window.removeEventListener("pointerdown", handler); window.removeEventListener("keydown", handler); };
   }, [produto, resetIdleTimer]);
+
+  // Auto-dismiss error after 3 seconds
+  useEffect(() => {
+    if (error) {
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+      errorTimerRef.current = setTimeout(() => {
+        setError(null);
+      }, 3000);
+    }
+    return () => { if (errorTimerRef.current) clearTimeout(errorTimerRef.current); };
+  }, [error]);
 
   // Fetch terminal media
   useEffect(() => {
     const fetchMedia = async () => {
-      const { data } = await supabase
-        .from("terminal_media")
-        .select("id, tipo, url, duracao_segundos")
-        .eq("ativo", true)
-        .order("ordem", { ascending: true });
+      const { data } = await supabase.from("terminal_media").select("id, tipo, url, duracao_segundos")
+        .eq("ativo", true).order("ordem", { ascending: true });
       if (data) setMediaList(data as MediaItem[]);
     };
     fetchMedia();
@@ -197,38 +232,24 @@ export default function TerminalPage() {
     if (!isIdle || mediaList.length <= 1) return;
     const current = mediaList[currentMediaIndex];
     if (!current || current.tipo === "video") return;
-
-    const timer = setTimeout(() => {
-      setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length);
-    }, current.duracao_segundos * 1000);
-
+    const timer = setTimeout(() => setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length), current.duracao_segundos * 1000);
     return () => clearTimeout(timer);
   }, [isIdle, currentMediaIndex, mediaList]);
 
-  // Keep focus on hidden input for barcode scanner — aggressively
+  // Keep focus
   useEffect(() => {
     const keepFocus = () => {
-      if (inputRef.current && document.activeElement !== inputRef.current) {
-        inputRef.current.focus({ preventScroll: true });
-      }
+      if (inputRef.current && document.activeElement !== inputRef.current) inputRef.current.focus({ preventScroll: true });
     };
     const interval = setInterval(keepFocus, 200);
     keepFocus();
-
-    // Re-focus on any click/touch anywhere on the page
     const onPointerDown = () => setTimeout(keepFocus, 50);
-    // Re-focus when window regains visibility
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") keepFocus();
-    };
-    // Re-focus after fullscreen changes
+    const onVisibility = () => { if (document.visibilityState === "visible") keepFocus(); };
     const onFsChange = () => setTimeout(keepFocus, 100);
-
     window.addEventListener("pointerdown", onPointerDown, true);
     window.addEventListener("touchstart", onPointerDown, true);
     document.addEventListener("visibilitychange", onVisibility);
     document.addEventListener("fullscreenchange", onFsChange);
-
     return () => {
       clearInterval(interval);
       window.removeEventListener("pointerdown", onPointerDown, true);
@@ -240,32 +261,24 @@ export default function TerminalPage() {
 
   const toggleFullscreen = async () => {
     try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      } else {
-        await containerRef.current?.requestFullscreen();
-      }
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await containerRef.current?.requestFullscreen();
     } catch {}
   };
 
-  // Beep sound via Web Audio API
   const playBeep = useCallback(() => {
     try {
       const ctx = new AudioContext();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 1200;
-      osc.type = "sine";
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = 1200; osc.type = "sine";
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.15);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
     } catch {}
   }, []);
 
-  // TTS to speak the price
   const speakPrice = useCallback((preco: number, nome: string) => {
     try {
       if (!("speechSynthesis" in window)) return;
@@ -273,35 +286,39 @@ export default function TerminalPage() {
       const reais = Math.floor(preco);
       const centavos = Math.round((preco - reais) * 100);
       let text = `${nome}. `;
-      if (centavos > 0) {
-        text += `${reais} reais e ${centavos} centavos`;
-      } else {
-        text += `${reais} reais`;
-      }
+      text += centavos > 0 ? `${reais} reais e ${centavos} centavos` : `${reais} reais`;
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "pt-BR";
-      utterance.rate = 0.95;
+      utterance.lang = "pt-BR"; utterance.rate = 0.95;
       window.speechSynthesis.speak(utterance);
     } catch {}
   }, []);
 
+  // Apply dynamic colors from image
+  const applyDynamicColors = useCallback(async (imageUrl: string) => {
+    if (!corAutoEnabled) return;
+    const color = await extractDominantColor(imageUrl);
+    if (!color) return;
+    const { r, g, b } = color;
+    const dark = darken(r, g, b, 0.2);
+    setDynamicBg(`linear-gradient(160deg, rgb(${dark.r},${dark.g},${dark.b}) 0%, rgb(${Math.round(dark.r * 1.3)},${Math.round(dark.g * 1.3)},${Math.round(dark.b * 1.3)}) 50%, rgb(${dark.r},${dark.g},${dark.b}) 100%)`);
+    setDynamicDescBg(`linear-gradient(135deg, rgb(${r},${g},${b}), rgb(${Math.round(r * 0.75)},${Math.round(g * 0.75)},${Math.round(b * 0.75)}))`);
+    // Price: use lighter variant for contrast
+    const light = lighten(r, g, b, 0.6);
+    setDynamicPriceColor(`rgb(${light.r},${light.g},${light.b})`);
+    setDynamicWaveColor(`rgba(${r},${g},${b},0.15)`);
+  }, [corAutoEnabled]);
+
   const consultar = async (code?: string) => {
     const searchEan = (code || ean).replace(/\D/g, "").trim();
     if (!searchEan) return;
-
-    // Clear input immediately
     setEan("");
-
     if (beepEnabled) playBeep();
-    setLoading(true);
-    setError(null);
-    setProduto(null);
-    setSugestoes(null);
+    setLoading(true); setError(null); setProduto(null); setSugestoes(null);
+    setDynamicBg(null); setDynamicDescBg(null); setDynamicPriceColor(null); setDynamicWaveColor(null);
 
     try {
       const prodRes = await fetch(`${BASE_URL}/api-produtos?ean=${searchEan}`);
       if (!prodRes.ok) {
-        console.warn("[Terminal] EAN not found:", searchEan);
         setError(`Produto não encontrado (${searchEan})`);
         setLoading(false);
         return;
@@ -310,15 +327,11 @@ export default function TerminalPage() {
       const prod = prodData.produto;
       setProduto(prod);
 
-      // Speak the price
-      if (ttsEnabled && prod.preco) {
-        speakPrice(prod.preco, prod.nome_curto || prod.nome);
-      }
+      if (ttsEnabled && prod.preco) speakPrice(prod.preco, prod.nome_curto || prod.nome);
+      if (prod.imagem_url_vtex) applyDynamicColors(prod.imagem_url_vtex);
 
       fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=${maxSugestoes || 3}`)
-        .then(r => r.json())
-        .then(d => setSugestoes(d.sugestoes))
-        .catch(() => {});
+        .then(r => r.json()).then(d => setSugestoes(d.sugestoes)).catch(() => {});
 
       setLoading(false);
     } catch {
@@ -327,9 +340,7 @@ export default function TerminalPage() {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") consultar();
-  };
+  const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === "Enter") consultar(); };
 
   const formatPrice = (value: number) => {
     const [reais, centavos] = value.toFixed(2).split(".");
@@ -338,7 +349,6 @@ export default function TerminalPage() {
 
   const hasDiscount = produto?.preco_lista && produto?.preco && produto.preco_lista > produto.preco;
 
-  // Get suggestions based on configured type, limited to 3
   const getSugestoes = (): Sugestao[] => {
     if (!sugestoes) return [];
     const map: Record<string, Sugestao[]> = {
@@ -352,9 +362,44 @@ export default function TerminalPage() {
 
   const allSugestoes = getSugestoes();
 
+  // Resolved colors: dynamic (auto) or manual
+  const bgStyle = corAutoEnabled && dynamicBg
+    ? { background: dynamicBg }
+    : { background: `linear-gradient(160deg, ${corFundo} 0%, ${corFundo}ee 50%, ${corFundo} 100%)` };
+
+  const descBgStyle = corAutoEnabled && dynamicDescBg
+    ? { background: dynamicDescBg, boxShadow: `0 8px 30px rgba(0,0,0,0.4)` }
+    : { background: `linear-gradient(135deg, ${corDescricao}, ${corDescricao}cc)`, boxShadow: `0 8px 30px ${corDescricao}66` };
+
+  const priceColor = corAutoEnabled && dynamicPriceColor ? dynamicPriceColor : corPreco;
+  const waveColor = corAutoEnabled && dynamicWaveColor ? dynamicWaveColor : `${corDescricao}22`;
+
+  const WaveSvg = () => (
+    <svg
+      className="absolute bottom-0 left-0 w-full pointer-events-none z-[1]"
+      viewBox="0 0 1440 320"
+      preserveAspectRatio="none"
+      style={{ height: "30vh", opacity: 0.7 }}
+    >
+      <path
+        fill={waveColor}
+        d="M0,224L48,208C96,192,192,160,288,165.3C384,171,480,213,576,224C672,235,768,213,864,186.7C960,160,1056,128,1152,128C1248,128,1344,160,1392,176L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
+      />
+      <path
+        fill={waveColor}
+        d="M0,288L48,272C96,256,192,224,288,213.3C384,203,480,213,576,229.3C672,245,768,267,864,261.3C960,256,1056,224,1152,208C1248,192,1344,192,1392,192L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
+        style={{ opacity: 0.6 }}
+      />
+    </svg>
+  );
+
   return (
-    <div ref={containerRef} className="terminal-page" style={{ cursor: "none" }}>
-      {/* Hidden input for barcode scanner — no keyboard */}
+    <div
+      ref={containerRef}
+      className="terminal-page"
+      style={{ ...bgStyle, cursor: "none", transition: "background 0.8s ease" }}
+    >
+      {/* Hidden input */}
       <input
         ref={inputRef}
         type="text"
@@ -365,25 +410,13 @@ export default function TerminalPage() {
         onFocus={() => setInputFocused(true)}
         onBlur={() => setInputFocused(false)}
         autoFocus
-        style={{
-          position: "absolute",
-          opacity: 0,
-          width: 0,
-          height: 0,
-          overflow: "hidden",
-          pointerEvents: "none",
-        }}
+        style={{ position: "absolute", opacity: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}
       />
 
-      {/* Focus indicator — green dot = ready to scan */}
-      <div
-        className="absolute bottom-2 left-2 z-50 flex items-center gap-1"
-        style={{ opacity: 0.6 }}
-      >
-        <div
-          className="w-2 h-2 rounded-full transition-colors duration-300"
-          style={{ backgroundColor: inputFocused ? "#22c55e" : "#ef4444" }}
-        />
+      {/* Focus indicator */}
+      <div className="absolute bottom-2 left-2 z-50 flex items-center gap-1" style={{ opacity: 0.6 }}>
+        <div className="w-2 h-2 rounded-full transition-colors duration-300"
+          style={{ backgroundColor: inputFocused ? "#22c55e" : "#ef4444" }} />
       </div>
 
       {/* Fullscreen toggle */}
@@ -400,27 +433,29 @@ export default function TerminalPage() {
         )}
       </button>
 
-      {/* Blob shapes background */}
-      <div className="terminal-blob terminal-blob-1" />
-      <div className="terminal-blob terminal-blob-2" />
-      <div className="terminal-blob terminal-blob-3" />
+      {/* Blobs (only when no dynamic bg) */}
+      {!dynamicBg && (
+        <>
+          <div className="terminal-blob terminal-blob-1" />
+          <div className="terminal-blob terminal-blob-2" />
+          <div className="terminal-blob terminal-blob-3" />
+        </>
+      )}
+
+      {/* SVG Waves background */}
+      {wavesEnabled && produto && <WaveSvg />}
 
       {/* Loading */}
       <AnimatePresence>
         {loading && (
-          <motion.div
-            className="terminal-loading"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
+          <motion.div className="terminal-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="terminal-spinner" />
             <p className="text-white/70 text-lg mt-4">Consultando...</p>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Error */}
+      {/* Error — auto-dismiss after 3s */}
       <AnimatePresence>
         {error && (
           <motion.div
@@ -431,11 +466,22 @@ export default function TerminalPage() {
           >
             <p className="text-2xl font-bold">{error}</p>
             <p className="text-white/50 mt-2">Verifique o código e tente novamente</p>
+            {/* Countdown bar */}
+            <motion.div
+              className="mt-4 h-1 rounded-full bg-white/20 overflow-hidden w-48 mx-auto"
+            >
+              <motion.div
+                className="h-full bg-white/50 rounded-full"
+                initial={{ width: "100%" }}
+                animate={{ width: "0%" }}
+                transition={{ duration: 3, ease: "linear" }}
+              />
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Product display — IMAGE FIRST (top), then info, then suggestions */}
+      {/* Product display */}
       <AnimatePresence mode="wait">
         {produto && !loading && (
           <motion.div
@@ -446,7 +492,7 @@ export default function TerminalPage() {
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.3 }}
           >
-            {/* Image on top — dynamic size */}
+            {/* Image */}
             <motion.div
               className="terminal-product-image-top"
               initial={{ scale: 0.5, opacity: 0, y: 40 }}
@@ -455,12 +501,8 @@ export default function TerminalPage() {
               style={{ width: imgSize, height: imgSize }}
             >
               {produto.imagem_url_vtex ? (
-                <img
-                  src={produto.imagem_url_vtex}
-                  alt={produto.nome}
-                  className="terminal-product-image-large"
-                  style={{ maxWidth: imgSize, maxHeight: imgSize }}
-                />
+                <img src={produto.imagem_url_vtex} alt={produto.nome} className="terminal-product-image-large"
+                  style={{ maxWidth: imgSize, maxHeight: imgSize }} />
               ) : (
                 <div className="terminal-no-image-large" style={{ width: imgSize, height: imgSize }}>
                   <Barcode className="w-20 h-20 text-white/30" />
@@ -471,16 +513,13 @@ export default function TerminalPage() {
             {/* Name + brand */}
             <motion.div
               className="terminal-name-banner"
+              style={{ ...descBgStyle, transition: "background 0.6s ease, box-shadow 0.6s ease" }}
               initial={{ x: -80, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.4, delay: 0.25, ease: "easeOut" }}
             >
-              <h1 className="terminal-product-name" style={{ fontSize: fontNome }}>
-                {produto.nome_curto || produto.nome}
-              </h1>
-              {produto.marca && (
-                <p className="terminal-product-brand">{produto.marca}</p>
-              )}
+              <h1 className="terminal-product-name" style={{ fontSize: fontNome }}>{produto.nome_curto || produto.nome}</h1>
+              {produto.marca && <p className="terminal-product-brand">{produto.marca}</p>}
             </motion.div>
 
             {/* Price */}
@@ -491,54 +530,36 @@ export default function TerminalPage() {
               transition={{ duration: 0.4, delay: 0.35 }}
             >
               {hasDiscount && (
-                <p className="terminal-old-price">
-                  De R$ {produto.preco_lista!.toFixed(2)}
-                </p>
+                <p className="terminal-old-price">De R$ {produto.preco_lista!.toFixed(2)}</p>
               )}
-              <div className="terminal-price" style={{ fontSize: fontPreco }}>
+              <div className="terminal-price" style={{ fontSize: fontPreco, color: priceColor, transition: "color 0.6s ease" }}>
                 <span className="terminal-price-symbol">R$</span>
                 <motion.span
                   className="terminal-price-reais"
-                  style={{ fontSize: fontPreco }}
+                  style={{ fontSize: fontPreco, color: priceColor }}
                   initial={{ scale: 0.6, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   transition={{ duration: 0.4, delay: 0.45, type: "spring", stiffness: 300 }}
                 >
                   {formatPrice(produto.preco ?? 0).reais}
                 </motion.span>
-                <span className="terminal-price-centavos" style={{ fontSize: fontPreco * 0.45 }}>
+                <span className="terminal-price-centavos" style={{ fontSize: fontPreco * 0.45, color: priceColor }}>
                   ,{formatPrice(produto.preco ?? 0).centavos}
                 </span>
               </div>
-              {produto.unidade_medida && (
-                <p className="terminal-unit">{produto.unidade_medida}</p>
-              )}
+              {produto.unidade_medida && <p className="terminal-unit">{produto.unidade_medida}</p>}
               {hasDiscount && (
-                <motion.div
-                  className="terminal-volume-price"
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.55 }}
-                >
+                <motion.div className="terminal-volume-price" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.55 }}>
                   <span className="terminal-volume-label">A partir de 3 Un:</span>
-                  <span className="terminal-volume-badge">
-                    R$ {produto.preco!.toFixed(2)}
-                  </span>
+                  <span className="terminal-volume-badge">R$ {produto.preco!.toFixed(2)}</span>
                 </motion.div>
               )}
             </motion.div>
 
-            {/* Suggestions — max 3 */}
+            {/* Suggestions */}
             {allSugestoes.length > 0 && (
-              <motion.div
-                className="terminal-suggestions"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: 0.6 }}
-              >
-                <h2 className="terminal-suggestions-title">
-                  💡 Você também pode gostar
-                </h2>
+              <motion.div className="terminal-suggestions" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.6 }}>
+                <h2 className="terminal-suggestions-title">💡 Você também pode gostar</h2>
                 <div className="terminal-suggestions-grid">
                   {allSugestoes.map((s, i) => (
                     <motion.button
@@ -548,30 +569,15 @@ export default function TerminalPage() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: 0.7 + i * 0.08 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        setEan(s.ean);
-                        consultar(s.ean);
-                      }}
+                      onClick={() => { setEan(s.ean); consultar(s.ean); }}
                     >
                       {s.imagem_url_vtex ? (
-                        <img
-                          src={s.imagem_url_vtex}
-                          alt={s.nome}
-                          className="terminal-suggestion-img"
-                        />
+                        <img src={s.imagem_url_vtex} alt={s.nome} className="terminal-suggestion-img" />
                       ) : (
-                        <div className="terminal-suggestion-noimg">
-                          <Barcode className="w-6 h-6 text-white/20" />
-                        </div>
+                        <div className="terminal-suggestion-noimg"><Barcode className="w-6 h-6 text-white/20" /></div>
                       )}
-                      <p className="terminal-suggestion-name">
-                        {s.nome_curto || s.nome}
-                      </p>
-                      {s.preco && (
-                        <p className="terminal-suggestion-price">
-                          R$ {s.preco.toFixed(2)}
-                        </p>
-                      )}
+                      <p className="terminal-suggestion-name">{s.nome_curto || s.nome}</p>
+                      {s.preco && <p className="terminal-suggestion-price">R$ {s.preco.toFixed(2)}</p>}
                     </motion.button>
                   ))}
                 </div>
@@ -581,54 +587,26 @@ export default function TerminalPage() {
         )}
       </AnimatePresence>
 
-      {/* Idle state — media slideshow or fallback */}
+      {/* Idle — slideshow */}
       <AnimatePresence>
         {isIdle && (
           <>
             {mediaList.length > 0 ? (
-              <motion.div
-                className="terminal-media-slideshow"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.5 }}
-              >
-                {/* Crossfade: render ALL media stacked, only active one is visible */}
+              <motion.div className="terminal-media-slideshow" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.5 }}>
                 {mediaList.map((media, idx) => (
-                  <motion.div
-                    key={media.id}
-                    className="terminal-media-item"
-                    initial={false}
+                  <motion.div key={media.id} className="terminal-media-item" initial={false}
                     animate={{ opacity: idx === currentMediaIndex ? 1 : 0 }}
                     transition={{ duration: 1.2, ease: "easeInOut" }}
                     style={{ pointerEvents: idx === currentMediaIndex ? "auto" : "none" }}
                   >
                     {media.tipo === "imagem" ? (
-                      <img
-                        src={media.url}
-                        alt=""
-                        className="terminal-media-content"
-                      />
+                      <img src={media.url} alt="" className="terminal-media-content" />
                     ) : (
-                      <video
-                        src={media.url}
-                        className="terminal-media-content"
-                        autoPlay={idx === currentMediaIndex}
-                        muted
-                        playsInline
-                        onEnded={() => {
-                          if (idx === currentMediaIndex) {
-                            setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length);
-                          }
-                        }}
+                      <video src={media.url} className="terminal-media-content" autoPlay={idx === currentMediaIndex} muted playsInline
+                        onEnded={() => { if (idx === currentMediaIndex) setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length); }}
                         ref={(el) => {
                           if (!el) return;
-                          if (idx === currentMediaIndex) {
-                            el.play().catch(() => {});
-                          } else {
-                            el.pause();
-                            el.currentTime = 0;
-                          }
+                          if (idx === currentMediaIndex) { el.play().catch(() => {}); } else { el.pause(); el.currentTime = 0; }
                         }}
                       />
                     )}
@@ -636,17 +614,8 @@ export default function TerminalPage() {
                 ))}
               </motion.div>
             ) : (
-              <motion.div
-                className="terminal-idle"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ duration: 0.4 }}
-              >
-                <motion.div
-                  animate={{ y: [0, -8, 0] }}
-                  transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                >
+              <motion.div className="terminal-idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ duration: 0.4 }}>
+                <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}>
                   <Barcode className="w-24 h-24 text-white/15 mb-6" />
                 </motion.div>
                 <p className="text-white/40 text-2xl font-bold">Consulte um produto</p>
