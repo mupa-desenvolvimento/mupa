@@ -438,7 +438,10 @@
     }
 
     .terminal-product-image-large {
-      @apply w-72 h-72;
+      width: 30vh;
+      height: 30vh;
+      max-width: 360px;
+      max-height: 360px;
     }
 
     .terminal-main-container {
