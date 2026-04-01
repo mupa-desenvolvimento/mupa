@@ -21,7 +21,7 @@ export default function CatalogoPage() {
   const { data, isLoading } = useProdutos({ q, page, per_page: 24 });
 
   const getImageUrl = (p: Tables<"produtos">) => {
-    return p.imagem_url_azure || p.imagem_url_vtex || null;
+    return p.imagem_url_vtex || p.imagem_url_azure || null;
   };
 
   const getDiscount = (p: Tables<"produtos">) => {
