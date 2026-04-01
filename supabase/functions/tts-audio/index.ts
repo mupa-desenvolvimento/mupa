@@ -17,13 +17,28 @@ const FRASES_OFERTA = [
   "Preço especial por tempo limitado! Aproveite!",
 ];
 
-const FRASES_SUGESTAO = [
-  "Aproveite também!",
-  "Veja o que pode combinar!",
-  "Que tal levar também?",
-  "Confira outras opções!",
-  "Combine com esses produtos!",
-  "Sugestões especiais para você!",
+const FRASES_SUGESTAO_MARCA = [
+  "Confira mais produtos da mesma marca!",
+  "Veja outros itens dessa marca!",
+  "Essa marca tem mais opções pra você!",
+  "Aproveite outros produtos da marca!",
+  "Conheça mais dessa marca!",
+];
+
+const FRASES_SUGESTAO_COMPLEMENTAR = [
+  "Que tal combinar com esses produtos?",
+  "Veja o que combina perfeitamente!",
+  "Aproveite e leve junto!",
+  "Esses produtos combinam muito bem!",
+  "Complete sua compra com essas sugestões!",
+  "Olha o que vai bem junto!",
+];
+
+const FRASES_SUGESTAO_PERFIL = [
+  "Selecionamos especialmente para você!",
+  "Sugestões pensadas no seu perfil!",
+  "Você também pode gostar desses!",
+  "Recomendados para você!",
 ];
 
 const FRASES_INDISPONIVEL = [
