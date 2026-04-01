@@ -97,15 +97,20 @@ export default function TerminalPage() {
     return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
-  // Fetch terminal config (tipo_sugestao)
+  // Fetch terminal config
   useEffect(() => {
     const fetchConfig = async () => {
       const { data } = await supabase
         .from("terminal_config")
-        .select("valor")
-        .eq("chave", "tipo_sugestao")
-        .maybeSingle();
-      if (data?.valor) setTipoSugestao(data.valor);
+        .select("chave, valor")
+        .in("chave", ["tipo_sugestao", "beep_enabled", "tts_enabled"]);
+      if (data) {
+        for (const row of data) {
+          if (row.chave === "tipo_sugestao") setTipoSugestao(row.valor);
+          if (row.chave === "beep_enabled") setBeepEnabled(row.valor !== "false");
+          if (row.chave === "tts_enabled") setTtsEnabled(row.valor !== "false");
+        }
+      }
     };
     fetchConfig();
   }, []);
