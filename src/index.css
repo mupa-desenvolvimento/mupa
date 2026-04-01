@@ -174,7 +174,6 @@
   /* ===== Terminal Page ===== */
   .terminal-page {
     @apply relative min-h-screen flex flex-col items-center overflow-hidden;
-    background: linear-gradient(160deg, #1a0a0a 0%, #2d0f0f 30%, #0d0d0d 70%, #1a0a0a 100%);
     font-family: var(--font-display);
   }
 
