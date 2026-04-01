@@ -228,6 +228,13 @@
     @apply relative flex items-center justify-center w-full;
   }
 
+  @media (orientation: portrait) {
+    .terminal-product-image-top {
+      margin-top: -30px;
+      margin-bottom: -30px;
+    }
+  }
+
   .terminal-product-image-large {
     @apply w-64 h-64 object-contain relative z-10 drop-shadow-2xl;
     filter: drop-shadow(0 10px 25px rgba(0,0,0,0.5));
