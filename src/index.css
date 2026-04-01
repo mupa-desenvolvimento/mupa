@@ -170,4 +170,178 @@
     background: var(--gradient-accent);
     color: hsl(var(--accent-foreground));
   }
+
+  /* ===== Terminal Page ===== */
+  .terminal-page {
+    @apply relative min-h-screen flex flex-col items-center overflow-hidden;
+    background: linear-gradient(160deg, #1a0a0a 0%, #2d0f0f 30%, #0d0d0d 70%, #1a0a0a 100%);
+    font-family: var(--font-display);
+  }
+
+  .terminal-blob {
+    @apply absolute rounded-full pointer-events-none;
+    filter: blur(80px);
+    opacity: 0.35;
+  }
+  .terminal-blob-1 {
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, #8b1a1a, transparent 70%);
+    top: -100px; right: -120px;
+  }
+  .terminal-blob-2 {
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, #4a0e0e, transparent 70%);
+    bottom: 10%; left: -100px;
+  }
+  .terminal-blob-3 {
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, #2d0f0f, transparent 70%);
+    top: 40%; right: -60px;
+  }
+
+  .terminal-search {
+    @apply relative z-10 flex items-center gap-3 w-full max-w-lg mx-auto mt-6 px-4 py-3 rounded-2xl;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(12px);
+  }
+
+  .terminal-input {
+    @apply flex-1 bg-transparent text-white text-base outline-none placeholder:text-white/30;
+    font-family: var(--font-body);
+  }
+
+  .terminal-search-btn {
+    @apply shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-white transition-all;
+    background: linear-gradient(135deg, #c0392b, #96281b);
+  }
+  .terminal-search-btn:hover {
+    transform: scale(1.05);
+  }
+
+  .terminal-loading {
+    @apply relative z-10 flex flex-col items-center justify-center flex-1 mt-20;
+  }
+
+  .terminal-spinner {
+    @apply w-12 h-12 rounded-full;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: #c0392b;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .terminal-error {
+    @apply relative z-10 text-center mt-20 text-white/70;
+  }
+
+  .terminal-product-area {
+    @apply relative z-10 flex flex-col items-center w-full max-w-md mx-auto px-4 pb-8 flex-1;
+  }
+
+  .terminal-name-banner {
+    @apply w-full mt-6 px-5 py-3 rounded-xl;
+    background: linear-gradient(135deg, #c0392b, #a93226);
+    box-shadow: 0 8px 30px rgba(192, 57, 43, 0.4);
+  }
+
+  .terminal-product-name {
+    @apply text-white font-bold text-xl uppercase leading-tight tracking-wide;
+  }
+
+  .terminal-product-brand {
+    @apply text-white/70 text-sm mt-0.5 uppercase tracking-wider;
+  }
+
+  .terminal-image-container {
+    @apply relative flex flex-col items-center mt-6;
+  }
+
+  .terminal-product-image {
+    @apply w-48 h-48 object-contain relative z-10 drop-shadow-2xl;
+    filter: drop-shadow(0 10px 25px rgba(0,0,0,0.5));
+  }
+
+  .terminal-no-image {
+    @apply w-48 h-48 flex items-center justify-center;
+  }
+
+  .terminal-pedestal {
+    @apply w-56 h-5 rounded-full -mt-2;
+    background: radial-gradient(ellipse, rgba(255,255,255,0.15), transparent 70%);
+  }
+
+  .terminal-price-area {
+    @apply text-center mt-4;
+  }
+
+  .terminal-old-price {
+    @apply text-white/40 text-base line-through mb-1;
+  }
+
+  .terminal-price {
+    @apply flex items-baseline justify-center text-white;
+  }
+
+  .terminal-price-symbol {
+    @apply text-2xl font-bold mr-1 self-start mt-2;
+  }
+
+  .terminal-price-reais {
+    @apply text-8xl font-black leading-none;
+    text-shadow: 0 4px 20px rgba(255,255,255,0.15);
+  }
+
+  .terminal-price-centavos {
+    @apply text-4xl font-bold self-start mt-1;
+  }
+
+  .terminal-unit {
+    @apply text-white/40 text-sm mt-1;
+  }
+
+  .terminal-suggestions {
+    @apply w-full mt-8;
+  }
+
+  .terminal-suggestions-title {
+    @apply text-white/60 text-sm font-semibold uppercase tracking-wider mb-3 text-center;
+  }
+
+  .terminal-suggestions-grid {
+    @apply grid grid-cols-3 gap-2;
+  }
+
+  .terminal-suggestion-card {
+    @apply flex flex-col items-center p-2 rounded-xl transition-all text-center;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .terminal-suggestion-card:hover {
+    background: rgba(255,255,255,0.12);
+    transform: translateY(-2px);
+  }
+
+  .terminal-suggestion-img {
+    @apply w-14 h-14 object-contain mb-1;
+  }
+
+  .terminal-suggestion-noimg {
+    @apply w-14 h-14 flex items-center justify-center;
+  }
+
+  .terminal-suggestion-name {
+    @apply text-white/70 text-[10px] leading-tight line-clamp-2;
+  }
+
+  .terminal-suggestion-price {
+    @apply text-white font-bold text-xs mt-1;
+  }
+
+  .terminal-idle {
+    @apply relative z-10 flex flex-col items-center justify-center flex-1 mt-20;
+  }
 }

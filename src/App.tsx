@@ -11,6 +11,7 @@ import CatalogoPage from "./pages/CatalogoPage";
 import SyncPage from "./pages/SyncPage";
 import ImagensPage from "./pages/ImagensPage";
 import DocsPage from "./pages/DocsPage";
+import TerminalPage from "./pages/TerminalPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +31,7 @@ const App = () => (
               <Route path="/imagens" element={<ImagensPage />} />
               <Route path="/docs" element={<DocsPage />} />
             </Route>
+            <Route path="/terminal" element={<TerminalPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
