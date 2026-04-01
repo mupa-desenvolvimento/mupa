@@ -251,8 +251,9 @@
 
   /* MAIN COLORED CONTAINER - wraps all info below image */
   .terminal-main-container {
-    @apply w-full rounded-3xl px-5 pt-14 pb-5 flex flex-col items-center relative z-10;
+    @apply w-full rounded-3xl px-5 pt-14 pb-4 flex flex-col items-center relative z-10 flex-1;
     box-shadow: 0 4px 30px rgba(0,0,0,0.08);
+    overflow: hidden;
   }
 
   /* Description sub-card (white/translucent inside main container) */
