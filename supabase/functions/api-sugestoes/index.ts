@@ -5,6 +5,81 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const CACHE_TTL_HOURS = 24;
+
+async function getCachedCategories(
+  supabase: any, ean: string, tipo: string, chavePerfil: string | null
+): Promise<string[] | null> {
+  const query = supabase
+    .from("sugestoes_cache")
+    .select("categorias_ai, criado_em")
+    .eq("ean", ean)
+    .eq("tipo", tipo);
+
+  if (chavePerfil) {
+    query.eq("chave_perfil", chavePerfil);
+  } else {
+    query.is("chave_perfil", null);
+  }
+
+  const { data } = await query.maybeSingle();
+  if (!data) return null;
+
+  const age = Date.now() - new Date(data.criado_em).getTime();
+  if (age > CACHE_TTL_HOURS * 3600 * 1000) return null;
+
+  return data.categorias_ai;
+}
+
+async function setCachedCategories(
+  supabase: any, ean: string, tipo: string, chavePerfil: string | null, categorias: string[]
+) {
+  await supabase.from("sugestoes_cache").upsert(
+    { ean, tipo, chave_perfil: chavePerfil, categorias_ai: categorias, criado_em: new Date().toISOString() },
+    { onConflict: "ean,tipo,chave_perfil" }
+  );
+}
+
+async function fetchAICategories(apiKey: string, systemMsg: string, prompt: string): Promise<string[]> {
+  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "google/gemini-3-flash-preview",
+      messages: [
+        { role: "system", content: systemMsg },
+        { role: "user", content: prompt },
+      ],
+    }),
+  });
+  if (!resp.ok) return [];
+  const data = await resp.json();
+  return (data.choices?.[0]?.message?.content || "")
+    .split(",").map((c: string) => c.trim().toLowerCase()).filter(Boolean);
+}
+
+async function searchProducts(supabase: any, categories: string[], excludeEans: Set<string>, limit: number) {
+  const results: any[] = [];
+  for (const cat of categories) {
+    if (results.length >= limit) break;
+    const { data } = await supabase
+      .from("produtos")
+      .select("ean, nome, nome_curto, marca, categoria, preco, preco_lista, imagem_url_vtex")
+      .eq("disponivel", true)
+      .or(`nome.ilike.%${cat}%,nome_curto.ilike.%${cat}%,categoria.ilike.%${cat}%`)
+      .limit(2);
+    if (data) {
+      for (const p of data) {
+        if (!excludeEans.has(p.ean) && results.length < limit) {
+          excludeEans.add(p.ean);
+          results.push({ ...p, motivo: cat });
+        }
+      }
+    }
+  }
+  return results;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -29,7 +104,6 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // 1. Find source product
     const { data: produto, error } = await supabase
       .from("produtos")
       .select("ean, nome, nome_curto, marca, categoria_id, categoria, preco, clusters")
@@ -43,176 +117,64 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 2. MARCA — same brand, different product
+    // 1. MARCA — same brand
     let marcaQuery = supabase
       .from("produtos")
       .select("ean, nome, nome_curto, marca, categoria, preco, preco_lista, imagem_url_vtex")
       .neq("ean", ean)
       .eq("disponivel", true);
-
-    if (produto.marca) {
-      marcaQuery = marcaQuery.eq("marca", produto.marca);
-    }
+    if (produto.marca) marcaQuery = marcaQuery.eq("marca", produto.marca);
     const { data: marcaResults } = await marcaQuery.limit(limit);
 
-    // 3. COMBINAR — AI-powered cross-sell
-    let complementares: any[] = [];
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const existingEans = new Set([ean, ...(marcaResults ?? []).map((p: any) => p.ean)]);
 
+    // 2. COMPLEMENTARES — with cache
+    let complementares: any[] = [];
     if (LOVABLE_API_KEY) {
       try {
-        const aiPrompt = `Dado o produto "${produto.nome}" (categoria: ${produto.categoria || "desconhecida"}, marca: ${produto.marca || "desconhecida"}), sugira exatamente 5 tipos/categorias de produtos complementares que um cliente provavelmente compraria junto.
-
-Exemplos:
-- Pizza congelada → refrigerante, ketchup, queijo ralado, cerveja, sorvete
-- Cerveja → petiscos, amendoim, carvão, copo descartável, gelo
-- Shampoo → condicionador, creme de pentear, toalha, escova de cabelo
-
-Responda APENAS com os nomes das categorias separados por vírgula, sem explicação.`;
-
-        const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-3-flash-preview",
-            messages: [
-              { role: "system", content: "Você é um especialista em varejo e cross-sell de supermercado brasileiro. Responda apenas com categorias separadas por vírgula." },
-              { role: "user", content: aiPrompt },
-            ],
-          }),
-        });
-
-        if (aiResp.ok) {
-          const aiData = await aiResp.json();
-          const categories = (aiData.choices?.[0]?.message?.content || "")
-            .split(",")
-            .map((c: string) => c.trim().toLowerCase())
-            .filter(Boolean);
-
+        let categories = await getCachedCategories(supabase, ean, "complementares", null);
+        if (!categories) {
+          const prompt = `Dado o produto "${produto.nome}" (categoria: ${produto.categoria || "desconhecida"}, marca: ${produto.marca || "desconhecida"}), sugira exatamente 5 tipos/categorias de produtos complementares que um cliente provavelmente compraria junto.\nResponda APENAS com os nomes das categorias separados por vírgula, sem explicação.`;
+          categories = await fetchAICategories(LOVABLE_API_KEY,
+            "Você é um especialista em varejo e cross-sell de supermercado brasileiro. Responda apenas com categorias separadas por vírgula.", prompt);
           if (categories.length > 0) {
-            const existingEans = new Set([ean, ...(marcaResults ?? []).map((p: any) => p.ean)]);
-
-            for (const cat of categories) {
-              if (complementares.length >= limit) break;
-
-              const { data: catProducts } = await supabase
-                .from("produtos")
-                .select("ean, nome, nome_curto, marca, categoria, preco, preco_lista, imagem_url_vtex")
-                .eq("disponivel", true)
-                .or(`nome.ilike.%${cat}%,nome_curto.ilike.%${cat}%,categoria.ilike.%${cat}%`)
-                .limit(2);
-
-              if (catProducts) {
-                for (const p of catProducts) {
-                  if (!existingEans.has(p.ean) && complementares.length < limit) {
-                    existingEans.add(p.ean);
-                    complementares.push({ ...p, motivo: cat });
-                  }
-                }
-              }
-            }
+            await setCachedCategories(supabase, ean, "complementares", null, categories);
           }
         }
-      } catch (aiErr) {
-        console.error("AI cross-sell error:", aiErr);
-      }
+        if (categories.length > 0) {
+          complementares = await searchProducts(supabase, categories, existingEans, limit);
+        }
+      } catch (e) { console.error("AI cross-sell error:", e); }
     }
 
-    // 4. PERFIL — AI demographic suggestions (only when idade or genero provided)
+    // 3. PERFIL — with cache
     let perfilResults: any[] = [];
-
     if (LOVABLE_API_KEY && (idade || genero)) {
       try {
-        const perfilDesc = [
-          idade ? `idade aproximada: ${idade} anos` : "",
-          genero ? `gênero: ${genero}` : "",
-        ].filter(Boolean).join(", ");
-
-        const perfilPrompt = `Um cliente de supermercado com perfil: ${perfilDesc}, está consultando o produto "${produto.nome}".
-Sugira exatamente 5 tipos de produtos que essa pessoa provavelmente teria interesse, considerando o perfil demográfico.
-
-Exemplos:
-- Homem 25 anos + cerveja → carvão, carne para churrasco, copo descartável, farofa, refrigerante
-- Mulher 35 anos + leite → cereal infantil, achocolatado, biscoito, iogurte, fruta
-- Idoso 65 anos + pão → manteiga, café, leite, queijo, presunto
-
-Responda APENAS com os nomes dos produtos/categorias separados por vírgula.`;
-
-        const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-3-flash-preview",
-            messages: [
-              { role: "system", content: "Você é um especialista em comportamento de consumo em supermercados brasileiros. Responda apenas com categorias separadas por vírgula." },
-              { role: "user", content: perfilPrompt },
-            ],
-          }),
-        });
-
-        if (aiResp.ok) {
-          const aiData = await aiResp.json();
-          const suggestions = (aiData.choices?.[0]?.message?.content || "")
-            .split(",")
-            .map((c: string) => c.trim().toLowerCase())
-            .filter(Boolean);
-
-          const allExisting = new Set([
-            ean,
-            ...(marcaResults ?? []).map((p: any) => p.ean),
-            ...complementares.map((p: any) => p.ean),
-          ]);
-
-          for (const sug of suggestions) {
-            if (perfilResults.length >= limit) break;
-
-            const { data: sugProducts } = await supabase
-              .from("produtos")
-              .select("ean, nome, nome_curto, marca, categoria, preco, preco_lista, imagem_url_vtex")
-              .eq("disponivel", true)
-              .or(`nome.ilike.%${sug}%,nome_curto.ilike.%${sug}%,categoria.ilike.%${sug}%`)
-              .limit(2);
-
-            if (sugProducts) {
-              for (const p of sugProducts) {
-                if (!allExisting.has(p.ean) && perfilResults.length < limit) {
-                  allExisting.add(p.ean);
-                  perfilResults.push({ ...p, motivo: sug });
-                }
-              }
-            }
+        const chavePerfil = [idade || "", genero || ""].join("|");
+        let categories = await getCachedCategories(supabase, ean, "perfil", chavePerfil);
+        if (!categories) {
+          const perfilDesc = [idade ? `idade: ${idade}` : "", genero ? `gênero: ${genero}` : ""].filter(Boolean).join(", ");
+          const prompt = `Um cliente de supermercado com perfil: ${perfilDesc}, está consultando o produto "${produto.nome}".\nSugira exatamente 5 tipos de produtos que essa pessoa teria interesse.\nResponda APENAS com os nomes separados por vírgula.`;
+          categories = await fetchAICategories(LOVABLE_API_KEY,
+            "Você é um especialista em comportamento de consumo em supermercados brasileiros. Responda apenas com categorias separadas por vírgula.", prompt);
+          if (categories.length > 0) {
+            await setCachedCategories(supabase, ean, "perfil", chavePerfil, categories);
           }
         }
-      } catch (aiErr) {
-        console.error("AI profile error:", aiErr);
-      }
+        if (categories.length > 0) {
+          perfilResults = await searchProducts(supabase, categories, existingEans, limit);
+        }
+      } catch (e) { console.error("AI profile error:", e); }
     }
 
     return new Response(
       JSON.stringify({
-        produto_consultado: {
-          ean: produto.ean,
-          nome: produto.nome,
-          marca: produto.marca,
-          categoria: produto.categoria,
-        },
-        sugestoes: {
-          mesma_marca: marcaResults ?? [],
-          complementares,
-          perfil: perfilResults,
-        },
-        parametros_recebidos: {
-          ean,
-          idade: idade || null,
-          genero: genero || null,
-          limit,
-        },
+        produto_consultado: { ean: produto.ean, nome: produto.nome, marca: produto.marca, categoria: produto.categoria },
+        sugestoes: { mesma_marca: marcaResults ?? [], complementares, perfil: perfilResults },
+        parametros_recebidos: { ean, idade: idade || null, genero: genero || null, limit },
+        cache_info: { ttl_hours: CACHE_TTL_HOURS },
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

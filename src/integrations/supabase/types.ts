@@ -134,6 +134,33 @@ export type Database = {
         }
         Relationships: []
       }
+      sugestoes_cache: {
+        Row: {
+          categorias_ai: string[]
+          chave_perfil: string | null
+          criado_em: string
+          ean: string
+          id: string
+          tipo: string
+        }
+        Insert: {
+          categorias_ai: string[]
+          chave_perfil?: string | null
+          criado_em?: string
+          ean: string
+          id?: string
+          tipo: string
+        }
+        Update: {
+          categorias_ai?: string[]
+          chave_perfil?: string | null
+          criado_em?: string
+          ean?: string
+          id?: string
+          tipo?: string
+        }
+        Relationships: []
+      }
       sync_log: {
         Row: {
           current_offset: number | null
