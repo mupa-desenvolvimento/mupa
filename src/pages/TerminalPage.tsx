@@ -256,7 +256,7 @@ export default function TerminalPage() {
     // Clear input immediately
     setEan("");
 
-    playBeep();
+    if (beepEnabled) playBeep();
     setLoading(true);
     setError(null);
     setProduto(null);
