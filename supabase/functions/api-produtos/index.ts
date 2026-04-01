@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
   const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "10"), 50);
 
   try {
-    // 1. Exact EAN lookup
+    // 1. Exact EAN lookup - fastest path
     if (ean) {
       const { data, error } = await supabase
         .from("produtos")
@@ -42,12 +42,15 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 2. Description search (with AI fuzzy matching)
+    // 2. Description search
     if (query) {
-      // First try direct ilike search
+      // Select only needed columns for faster response
+      const selectCols = "ean, nome, nome_curto, marca, categoria, preco, preco_lista, disponivel, imagem_url_vtex";
+      
+      // Direct ilike search (uses gin_trgm index)
       const { data: directResults } = await supabase
         .from("produtos")
-        .select("ean, nome, nome_curto, marca, categoria, preco, preco_lista, disponivel, imagem_url_vtex")
+        .select(selectCols)
         .or(`nome.ilike.%${query}%,nome_curto.ilike.%${query}%,marca.ilike.%${query}%`)
         .limit(limit);
 
@@ -58,28 +61,27 @@ Deno.serve(async (req) => {
         );
       }
 
-      // AI-powered fuzzy matching for incomplete/misspelled descriptions
+      // AI-powered fuzzy matching only when direct results are insufficient
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
       if (!LOVABLE_API_KEY) {
-        // Fallback: return whatever direct results we have
         return new Response(
           JSON.stringify({ produtos: directResults ?? [], match_type: "direct", total: directResults?.length ?? 0 }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      // Get a broader sample of products for AI to match against
+      // Get candidates with word-level matching
       const words = query.trim().split(/\s+/).filter(w => w.length > 2);
       let candidateQuery = supabase
         .from("produtos")
-        .select("ean, nome, nome_curto, marca, categoria, preco, preco_lista, disponivel, imagem_url_vtex");
+        .select(selectCols);
 
       if (words.length > 0) {
         const orConditions = words.map(w => `nome.ilike.%${w}%`).join(",");
         candidateQuery = candidateQuery.or(orConditions);
       }
 
-      const { data: candidates } = await candidateQuery.limit(100);
+      const { data: candidates } = await candidateQuery.limit(50);
 
       if (!candidates || candidates.length === 0) {
         return new Response(
@@ -88,7 +90,7 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Ask AI to identify the best matches
+      // Use fastest model for fuzzy matching
       const productList = candidates.map((p, i) => `${i}: ${p.nome} | ${p.marca ?? ""}`).join("\n");
 
       const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -102,19 +104,17 @@ Deno.serve(async (req) => {
           messages: [
             {
               role: "system",
-              content: `Você é um assistente de busca de produtos de supermercado. O usuário vai descrever um produto de forma parcial, incompleta ou com erros de digitação. Você deve identificar os produtos mais relevantes da lista fornecida.
-Retorne APENAS os índices dos produtos mais relevantes, separados por vírgula. Máximo ${limit} resultados. Se nenhum produto corresponder, retorne "NONE".`
+              content: `Você é um assistente de busca de produtos de supermercado. O usuário vai descrever um produto de forma parcial, incompleta ou com erros de digitação. Identifique os produtos mais relevantes da lista.\nRetorne APENAS os índices separados por vírgula. Máximo ${limit}. Se nenhum corresponder, retorne "NONE".`
             },
             {
               role: "user",
-              content: `Busca do usuário: "${query}"\n\nProdutos disponíveis:\n${productList}`
+              content: `Busca: "${query}"\n\nProdutos:\n${productList}`
             }
           ],
         }),
       });
 
       if (!aiResponse.ok) {
-        // Fallback to direct results
         return new Response(
           JSON.stringify({ produtos: directResults ?? [], match_type: "direct_fallback", total: directResults?.length ?? 0 }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -131,7 +131,6 @@ Retorne APENAS os índices dos produtos mais relevantes, separados por vírgula.
         );
       }
 
-      // Parse indices
       const indices = aiText
         .replace(/[^0-9,]/g, "")
         .split(",")
