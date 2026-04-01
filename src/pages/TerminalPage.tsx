@@ -321,7 +321,7 @@ export default function TerminalPage() {
       perfil: sugestoes.perfil,
       todas: [...sugestoes.complementares, ...sugestoes.mesma_marca, ...sugestoes.perfil],
     };
-    return (map[tipoSugestao] || map.todas).slice(0, 3);
+    return (map[tipoSugestao] || map.todas).slice(0, maxSugestoes);
   };
 
   const allSugestoes = getSugestoes();
