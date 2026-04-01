@@ -240,32 +240,34 @@ function _generateTheme(colors: RGB[]): ProductTheme {
   const accent = byVibrancy[0].rgb;
   const tertiary = withHsl[2]?.rgb || lightenRgb(primary, 0.3);
   const fourth = withHsl[3]?.rgb || darkenRgb(secondary, 0.5);
-  const bg1 = darkenRgb(primary, 0.12);
-  const bg2 = darkenRgb(secondary, 0.15);
-  const bg3 = darkenRgb(tertiary, 0.08);
-  const avgBg: RGB = { r: Math.round((bg1.r + bg2.r) / 2), g: Math.round((bg1.g + bg2.g) / 2), b: Math.round((bg1.b + bg2.b) / 2) };
-  const textColor = ensureContrast(avgBg, true);
-  const textMuted = rgbaStr(textColor === "rgb(255,255,255)" ? { r: 255, g: 255, b: 255 } : { r: 20, g: 20, b: 20 }, 0.5);
+
+  // LIGHT backgrounds: very light tinted versions of palette colors
+  const bg1 = lightenRgb(primary, 0.88);
+  const bg2 = lightenRgb(secondary, 0.9);
+  const bg3 = lightenRgb(tertiary, 0.92);
+
+  // Dark text for light bg
+  const textColor = "#1a1a1a";
+  const textMuted = "rgba(0,0,0,0.45)";
+
+  // Banner keeps vivid color
   const bannerDark = darkenRgb(accent, 0.7);
-  const cardColor = rgbaStr(lightenRgb(primary, 0.1), 0.08);
-  const priceLight = lightenRgb(accent, 0.5);
-  const priceFinal = contrastRatio(avgBg, priceLight) >= 4.5
-    ? rgbStr(priceLight) : contrastRatio(avgBg, { r: 255, g: 255, b: 255 }) >= 4.5 ? "#ffffff" : rgbStr(lightenRgb(accent, 0.7));
+  const cardColor = rgbaStr(primary, 0.05);
 
   return {
     primary: rgbStr(primary), secondary: rgbStr(secondary), accent: rgbStr(accent), tertiary: rgbStr(tertiary),
     background: [rgbStr(bg1), rgbStr(bg2), rgbStr(bg3)],
     textColor, textMuted, cardColor,
     bannerGradient: `linear-gradient(135deg, ${rgbStr(accent)}, ${rgbStr(bannerDark)})`,
-    bannerShadow: `0 8px 30px ${rgbaStr(accent, 0.35)}`,
+    bannerShadow: `0 8px 30px ${rgbaStr(accent, 0.25)}`,
     blobColors: [
-      `radial-gradient(circle, ${rgbaStr(primary, 0.4)}, transparent 70%)`,
-      `radial-gradient(circle, ${rgbaStr(secondary, 0.3)}, transparent 70%)`,
-      `radial-gradient(circle, ${rgbaStr(fourth, 0.25)}, transparent 70%)`,
+      `radial-gradient(circle, ${rgbaStr(primary, 0.15)}, transparent 70%)`,
+      `radial-gradient(circle, ${rgbaStr(secondary, 0.12)}, transparent 70%)`,
+      `radial-gradient(circle, ${rgbaStr(fourth, 0.1)}, transparent 70%)`,
     ],
-    waveColors: [rgbaStr(accent, 0.12), rgbaStr(secondary, 0.08)],
-    suggestionBg: rgbaStr(lightenRgb(primary, 0.05), 0.08),
-    suggestionBorder: rgbaStr(lightenRgb(primary, 0.15), 0.12),
+    waveColors: [rgbaStr(accent, 0.1), rgbaStr(secondary, 0.07)],
+    suggestionBg: rgbaStr(primary, 0.05),
+    suggestionBorder: rgbaStr(primary, 0.08),
     volumeBadgeBg: `linear-gradient(135deg, ${rgbStr(accent)}, ${rgbStr(darkenRgb(accent, 0.65))})`,
   };
 }
