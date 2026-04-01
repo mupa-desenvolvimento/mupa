@@ -469,17 +469,18 @@ export default function TerminalPage() {
                   De R$ {produto.preco_lista!.toFixed(2)}
                 </p>
               )}
-              <div className="terminal-price">
+              <div className="terminal-price" style={{ fontSize: fontPreco }}>
                 <span className="terminal-price-symbol">R$</span>
                 <motion.span
                   className="terminal-price-reais"
+                  style={{ fontSize: fontPreco }}
                   initial={{ scale: 0.6, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   transition={{ duration: 0.4, delay: 0.45, type: "spring", stiffness: 300 }}
                 >
                   {formatPrice(produto.preco ?? 0).reais}
                 </motion.span>
-                <span className="terminal-price-centavos">
+                <span className="terminal-price-centavos" style={{ fontSize: fontPreco * 0.45 }}>
                   ,{formatPrice(produto.preco ?? 0).centavos}
                 </span>
               </div>
