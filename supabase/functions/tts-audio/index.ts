@@ -26,6 +26,13 @@ const FRASES_SUGESTAO = [
   "Sugestões especiais para você!",
 ];
 
+const FRASES_INDISPONIVEL = [
+  "Produto temporariamente indisponível.",
+  "Este produto não está disponível no momento.",
+  "Desculpe, produto indisponível no momento.",
+  "Produto fora de estoque temporariamente.",
+];
+
 function formatPrecoTexto(preco: number): string {
   const reais = Math.floor(preco);
   const centavos = Math.round((preco - reais) * 100);
