@@ -527,18 +527,37 @@ export default function TerminalPage() {
     } catch { }
   }, []);
 
-  const speakPrice = useCallback((preco: number, nome: string) => {
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const speakPrice = useCallback(async (preco: number, nome: string, precoLista?: number, hasSugestoes?: boolean) => {
     try {
-      if (!("speechSynthesis" in window)) return;
-      window.speechSynthesis.cancel();
-      const reais = Math.floor(preco);
-      const centavos = Math.round((preco - reais) * 100);
-      let text = `${nome}. `;
-      text += centavos > 0 ? `${reais} reais e ${centavos} centavos` : `${reais} reais`;
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "pt-BR"; utterance.rate = 0.95;
-      window.speechSynthesis.speak(utterance);
-    } catch { }
+      // Stop any currently playing audio
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current = null;
+      }
+
+      const params = new URLSearchParams({
+        preco: preco.toString(),
+        nome,
+        ...(precoLista && precoLista > preco ? { preco_lista: precoLista.toString() } : {}),
+        ...(hasSugestoes ? { sugestao: "true" } : {}),
+      });
+
+      const res = await fetch(`${BASE_URL}/tts-audio?${params}`);
+      if (!res.ok) {
+        console.error("TTS fetch failed:", res.status);
+        return;
+      }
+      const data = await res.json();
+      if (data.audio_url) {
+        const audio = new Audio(data.audio_url);
+        currentAudioRef.current = audio;
+        audio.play().catch(() => {});
+      }
+    } catch (e) {
+      console.error("TTS error:", e);
+    }
   }, []);
 
   const consultar = async (code?: string) => {
