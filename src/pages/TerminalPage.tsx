@@ -205,11 +205,51 @@ export default function TerminalPage() {
     } catch {}
   };
 
+  // Beep sound via Web Audio API
+  const playBeep = useCallback(() => {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 1200;
+      osc.type = "sine";
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.15);
+    } catch {}
+  }, []);
+
+  // TTS to speak the price
+  const speakPrice = useCallback((preco: number, nome: string) => {
+    try {
+      if (!("speechSynthesis" in window)) return;
+      window.speechSynthesis.cancel();
+      const reais = Math.floor(preco);
+      const centavos = Math.round((preco - reais) * 100);
+      let text = `${nome}. `;
+      if (centavos > 0) {
+        text += `${reais} reais e ${centavos} centavos`;
+      } else {
+        text += `${reais} reais`;
+      }
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "pt-BR";
+      utterance.rate = 0.95;
+      window.speechSynthesis.speak(utterance);
+    } catch {}
+  }, []);
+
   const consultar = async (code?: string) => {
-    // Strip non-numeric chars (barcode scanners may add prefixes/suffixes)
     const searchEan = (code || ean).replace(/\D/g, "").trim();
     if (!searchEan) return;
 
+    // Clear input immediately
+    setEan("");
+
+    playBeep();
     setLoading(true);
     setError(null);
     setProduto(null);
@@ -224,7 +264,13 @@ export default function TerminalPage() {
         return;
       }
       const prodData = await prodRes.json();
-      setProduto(prodData.produto);
+      const prod = prodData.produto;
+      setProduto(prod);
+
+      // Speak the price
+      if (prod.preco) {
+        speakPrice(prod.preco, prod.nome_curto || prod.nome);
+      }
 
       fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=3`)
         .then(r => r.json())
