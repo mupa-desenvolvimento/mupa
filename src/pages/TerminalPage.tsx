@@ -694,6 +694,7 @@ export default function TerminalPage() {
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.3 }}
           >
+            {/* Product Image */}
             <motion.div
               className="terminal-product-image-top"
               initial={{ scale: 0.5, opacity: 0, y: 40 }}
@@ -711,48 +712,89 @@ export default function TerminalPage() {
               )}
             </motion.div>
 
+            {/* Product Description - Split: first 3 words bold, rest lighter */}
             <motion.div
-              className="terminal-name-banner"
-              style={{ background: t.bannerGradient, boxShadow: t.bannerShadow, transition: "background 0.8s ease, box-shadow 0.8s ease" }}
+              className="terminal-description-block"
               initial={{ x: -80, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.4, delay: 0.25, ease: "easeOut" }}
             >
-              <h1 className="terminal-product-name" style={{ fontSize: fontNome, color: t.bannerTextColor, transition: "color 0.8s ease" }}>
-                {produto.nome_curto || produto.nome}
-              </h1>
-              {produto.marca && <p className="terminal-product-brand" style={{ color: t.bannerTextMuted, transition: "color 0.8s ease" }}>{produto.marca}</p>}
+              {(() => {
+                const fullName = produto.nome_curto || produto.nome;
+                const words = fullName.split(/\s+/);
+                const highlight = words.slice(0, 3).join(" ");
+                const rest = words.slice(3).join(" ");
+                return (
+                  <>
+                    <h1 className="terminal-desc-highlight" style={{ fontSize: Math.max(fontNome, 28) }}>
+                      {highlight}
+                    </h1>
+                    {rest && (
+                      <p className="terminal-desc-details" style={{ fontSize: Math.max(fontNome * 0.7, 16) }}>
+                        {rest}
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
+              {produto.marca && (
+                <p className="terminal-desc-brand">{produto.marca}</p>
+              )}
             </motion.div>
 
-            <motion.div className="terminal-price-area" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.35 }}>
+            {/* Price in rounded dynamic-colored container */}
+            <motion.div
+              className="terminal-price-container"
+              style={{
+                background: t.bannerGradient,
+                boxShadow: t.bannerShadow,
+                transition: "background 0.8s ease, box-shadow 0.8s ease",
+              }}
+              initial={{ opacity: 0, y: 30, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.4, delay: 0.35, type: "spring", stiffness: 250, damping: 22 }}
+            >
               {hasDiscount && (
-                <p className="terminal-old-price" style={{ color: t.textMuted }}>De R$ {produto.preco_lista!.toFixed(2)}</p>
+                <p className="terminal-container-old-price" style={{ color: `${t.bannerTextMuted}` }}>
+                  De R$ {produto.preco_lista!.toFixed(2)}
+                </p>
               )}
-              <div className="terminal-price" style={{ fontSize: fontPreco, color: t.textColor, transition: "color 0.8s ease" }}>
-                <span className="terminal-price-symbol">R$</span>
+              <div className="terminal-container-price" style={{ color: t.bannerTextColor }}>
+                <span className="terminal-container-price-symbol">R$</span>
                 <motion.span
-                  className="terminal-price-reais"
-                  style={{ fontSize: fontPreco, color: t.textColor }}
+                  className="terminal-container-price-reais"
+                  style={{ fontSize: fontPreco, color: t.bannerTextColor }}
                   initial={{ scale: 0.6, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   transition={{ duration: 0.4, delay: 0.45, type: "spring", stiffness: 300 }}
                 >
                   {formatPrice(produto.preco ?? 0).reais}
                 </motion.span>
-                <span className="terminal-price-centavos" style={{ fontSize: fontPreco * 0.45, color: t.textColor }}>
+                <span className="terminal-container-price-cents" style={{ fontSize: fontPreco * 0.45, color: t.bannerTextColor }}>
                   ,{formatPrice(produto.preco ?? 0).centavos}
                 </span>
               </div>
-              {produto.unidade_medida && <p className="terminal-unit" style={{ color: t.textMuted }}>{produto.unidade_medida}</p>}
-              {hasDiscount && (
-                <motion.div className="terminal-volume-price" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.55 }}>
-                  <span className="terminal-volume-label" style={{ color: t.textMuted }}>A partir de 3 Un:</span>
-                  <span className="terminal-volume-badge" style={{ background: t.volumeBadgeBg, color: t.textColor, transition: "background 0.8s ease" }}>
-                    R$ {produto.preco!.toFixed(2)}
-                  </span>
-                </motion.div>
+              {produto.unidade_medida && (
+                <p className="terminal-container-unit" style={{ color: t.bannerTextMuted }}>{produto.unidade_medida}</p>
               )}
             </motion.div>
+
+            {/* Bottom accent bar */}
+            {hasDiscount && (
+              <motion.div
+                className="terminal-promo-strip"
+                style={{
+                  background: `linear-gradient(90deg, ${t.secondary}, ${t.accent})`,
+                  color: t.bannerTextColor,
+                  transition: "background 0.8s ease",
+                }}
+                initial={{ opacity: 0, scaleX: 0 }}
+                animate={{ opacity: 1, scaleX: 1 }}
+                transition={{ delay: 0.55, duration: 0.4 }}
+              >
+                PROMOÇÃO
+              </motion.div>
+            )}
 
             {allSugestoes.length > 0 && (
               <motion.div className="terminal-suggestions" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.6 }}>
