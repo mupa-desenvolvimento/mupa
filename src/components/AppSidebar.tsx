@@ -19,6 +19,7 @@ const navItems = [
   { to: "/imagens", icon: Image, label: "Imagens" },
   { to: "/docs", icon: FileText, label: "API Docs" },
   { to: "/terminal-media", icon: Monitor, label: "Mídia Terminal" },
+  { to: "/dispositivos", icon: Smartphone, label: "Dispositivos" },
 ];
 
 export default function AppSidebar() {
