@@ -809,10 +809,10 @@ export default function TerminalPage() {
             ) : (
               <motion.div className="terminal-idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ duration: 0.4 }}>
                 <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}>
-                  <Barcode className="w-24 h-24 text-white/15 mb-6" />
+                  <Barcode className="w-24 h-24 text-black/10 mb-6" />
                 </motion.div>
-                <p className="text-white/40 text-2xl font-bold">Consulte um produto</p>
-                <p className="text-white/25 text-lg mt-2">Escaneie o código de barras</p>
+                <p className="text-black/30 text-2xl font-bold">Consulte um produto</p>
+                <p className="text-black/20 text-lg mt-2">Escaneie o código de barras</p>
               </motion.div>
             )}
           </>
