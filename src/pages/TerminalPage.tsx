@@ -107,13 +107,18 @@ export default function TerminalPage() {
     const fetchConfig = async () => {
       const { data } = await supabase
         .from("terminal_config")
-        .select("chave, valor")
-        .in("chave", ["tipo_sugestao", "beep_enabled", "tts_enabled"]);
+        .select("chave, valor");
       if (data) {
         for (const row of data) {
-          if (row.chave === "tipo_sugestao") setTipoSugestao(row.valor);
-          if (row.chave === "beep_enabled") setBeepEnabled(row.valor !== "false");
-          if (row.chave === "tts_enabled") setTtsEnabled(row.valor !== "false");
+          switch (row.chave) {
+            case "tipo_sugestao": setTipoSugestao(row.valor); break;
+            case "beep_enabled": setBeepEnabled(row.valor !== "false"); break;
+            case "tts_enabled": setTtsEnabled(row.valor !== "false"); break;
+            case "font_nome": setFontNome(Number(row.valor) || 24); break;
+            case "font_preco": setFontPreco(Number(row.valor) || 72); break;
+            case "img_size": setImgSize(Number(row.valor) || 280); break;
+            case "max_sugestoes": setMaxSugestoes(Number(row.valor) ?? 3); break;
+          }
         }
       }
     };
