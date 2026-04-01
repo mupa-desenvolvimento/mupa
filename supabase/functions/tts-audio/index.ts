@@ -127,13 +127,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (incluirSugestao) {
-      const frase = FRASES_SUGESTAO[Math.floor(Math.random() * FRASES_SUGESTAO.length)];
-      texto += ` ${frase}`;
-    }
-
     // Cache key based on content
-    const cacheKey = `${preco}|${isOferta ? "1" : "0"}|${incluirSugestao ? "1" : "0"}`;
+    const cacheKey = `${tipo}|${preco}|${precoLista > preco ? "1" : "0"}|${incluirSugestao ? "1" : "0"}`;
     
     // Check cache
     const { data: cached } = await supabase
