@@ -65,6 +65,8 @@ const FALLBACK_THEME: ProductTheme = {
   cardColor: "rgba(0,0,0,0.04)",
   bannerGradient: "linear-gradient(135deg, rgb(192,57,43), rgb(169,50,38))",
   bannerShadow: "0 8px 30px rgba(192,57,43,0.25)",
+  bannerTextColor: "#ffffff",
+  bannerTextMuted: "rgba(255,255,255,0.8)",
   blobColors: [
     "radial-gradient(circle, rgba(192,57,43,0.15), transparent 70%)",
     "radial-gradient(circle, rgba(142,68,173,0.1), transparent 70%)",
