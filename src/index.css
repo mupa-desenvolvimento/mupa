@@ -252,7 +252,11 @@
   }
 
   .terminal-no-image-large {
-    @apply w-64 h-64 flex items-center justify-center;
+    @apply flex items-center justify-center;
+    width: 28vh;
+    height: 28vh;
+    max-width: 320px;
+    max-height: 320px;
   }
 
   /* MAIN COLORED CONTAINER - wraps all info below image */
