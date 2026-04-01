@@ -504,9 +504,11 @@ export default function TerminalMediaPage() {
           <div className="space-y-5 stat-card !p-5">
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-sm font-medium">Ajuste Fino</h3>
-              {layout !== "personalizado" && (
-                <span className="text-xs text-muted-foreground">Alterar desmarca o layout pré-definido</span>
-              )}
+              <Button variant="ghost" size="sm" onClick={resetToDefault} className="text-xs gap-1.5">
+                <RotateCcw className="w-3.5 h-3.5" />
+                Resetar para Padrão
+              </Button>
+            </div>
             </div>
 
             <div className="space-y-1">
