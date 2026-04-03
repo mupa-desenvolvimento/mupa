@@ -11,7 +11,205 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { ArrowRight, Key, Globe, Map, TestTube, Save, Loader2, CheckCircle2, AlertTriangle, Zap } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
+import { ArrowRight, Key, Globe, Map, TestTube, Save, Loader2, CheckCircle2, AlertTriangle, Zap, ClipboardPaste } from "lucide-react";
+
+/**
+ * Parses a cURL command string and extracts method, URL, headers, body, and query params.
+ */
+function parseCurl(curlStr: string): {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: string | null;
+  queryParams: Record<string, string>;
+} {
+  // Normalize: remove line continuations and collapse whitespace
+  const normalized = curlStr
+    .replace(/\\\s*\n/g, ' ')
+    .replace(/\\\s*\r\n/g, ' ')
+    .trim();
+
+  let method = "GET";
+  const headers: Record<string, string> = {};
+  let body: string | null = null;
+  let rawUrl = "";
+
+  // Extract method
+  const methodMatch = normalized.match(/-X\s+(\w+)/i) || normalized.match(/--request\s+(\w+)/i);
+  if (methodMatch) method = methodMatch[1].toUpperCase();
+
+  // Extract headers
+  const headerRegex = /(?:--header|-H)\s+'([^']+)'|(?:--header|-H)\s+"([^"]+)"/g;
+  let hMatch;
+  while ((hMatch = headerRegex.exec(normalized)) !== null) {
+    const headerStr = hMatch[1] || hMatch[2];
+    const colonIdx = headerStr.indexOf(':');
+    if (colonIdx > 0) {
+      const key = headerStr.substring(0, colonIdx).trim();
+      const value = headerStr.substring(colonIdx + 1).trim();
+      headers[key] = value;
+    }
+  }
+
+  // Extract body (--data, --data-raw, -d)
+  const bodyRegex = /(?:--data-raw|--data|-d)\s+'([^']*)'|(?:--data-raw|--data|-d)\s+"([^"]*)"/;
+  const bodyMatch = normalized.match(bodyRegex);
+  if (bodyMatch) {
+    body = bodyMatch[1] ?? bodyMatch[2] ?? null;
+    if (body && !method) method = "POST";
+  }
+  if (body && method === "GET") method = "POST";
+
+  // Extract URL (the first quoted string after 'curl' that looks like a URL, or --location / --url)
+  const locationMatch = normalized.match(/(?:--location|--url)\s+'([^']+)'|(?:--location|--url)\s+"([^"]+)"/);
+  if (locationMatch) {
+    rawUrl = locationMatch[1] || locationMatch[2];
+  } else {
+    // Try to find URL as a bare argument
+    const urlMatch = normalized.match(/curl\s+(?:.*?\s+)?'(https?:\/\/[^']+)'/) ||
+                     normalized.match(/curl\s+(?:.*?\s+)?"(https?:\/\/[^"]+)"/);
+    if (urlMatch) rawUrl = urlMatch[1];
+  }
+
+  // Parse query params from URL
+  const queryParams: Record<string, string> = {};
+  let cleanUrl = rawUrl;
+  try {
+    const urlObj = new URL(rawUrl);
+    urlObj.searchParams.forEach((v, k) => { queryParams[k] = v; });
+    cleanUrl = urlObj.origin + urlObj.pathname;
+  } catch { /* keep rawUrl as-is */ }
+
+  return { url: cleanUrl || rawUrl, method, headers, body, queryParams };
+}
+
+function CurlImportDialog({
+  onImport,
+  type,
+}: {
+  onImport: (parsed: ReturnType<typeof parseCurl>) => void;
+  type: "token" | "consulta";
+}) {
+  const [curlText, setCurlText] = useState("");
+  const [preview, setPreview] = useState<ReturnType<typeof parseCurl> | null>(null);
+
+  const handleParse = () => {
+    if (!curlText.trim()) return;
+    try {
+      const parsed = parseCurl(curlText);
+      setPreview(parsed);
+    } catch {
+      toast.error("Não foi possível interpretar o cURL");
+    }
+  };
+
+  const handleConfirm = () => {
+    if (preview) {
+      onImport(preview);
+      setCurlText("");
+      setPreview(null);
+      toast.success(`cURL importado para ${type === "token" ? "Token" : "Consulta"}!`);
+    }
+  };
+
+  return (
+    <Dialog onOpenChange={() => { setCurlText(""); setPreview(null); }}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-2">
+          <ClipboardPaste className="h-4 w-4" />
+          Importar cURL
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ClipboardPaste className="h-5 w-5 text-primary" />
+            Importar cURL — {type === "token" ? "Token" : "Consulta"}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Cole o comando cURL aqui:</Label>
+            <Textarea
+              className="font-mono text-xs min-h-[120px]"
+              placeholder={"curl --location 'https://api.exemplo.com/...' \\\n--header 'Content-Type: application/json' \\\n--data '{\"usuario\":\"...\",\"password\":\"...\"}'"}
+              value={curlText}
+              onChange={(e) => { setCurlText(e.target.value); setPreview(null); }}
+            />
+          </div>
+
+          <Button variant="secondary" size="sm" onClick={handleParse} disabled={!curlText.trim()}>
+            Interpretar cURL
+          </Button>
+
+          {preview && (
+            <div className="rounded-md border bg-muted/50 p-4 space-y-3">
+              <h4 className="text-sm font-medium text-foreground">Campos detectados:</h4>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Método:</span>{" "}
+                  <Badge variant="outline">{preview.method}</Badge>
+                </div>
+                <div className="truncate">
+                  <span className="text-muted-foreground">URL:</span>{" "}
+                  <span className="font-mono text-xs">{preview.url}</span>
+                </div>
+              </div>
+
+              {Object.keys(preview.headers).length > 0 && (
+                <div>
+                  <span className="text-xs text-muted-foreground">Headers:</span>
+                  <div className="mt-1 space-y-1">
+                    {Object.entries(preview.headers).map(([k, v]) => (
+                      <div key={k} className="text-xs font-mono bg-background rounded px-2 py-1">
+                        {k}: {v.length > 60 ? v.substring(0, 60) + "..." : v}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {preview.body && (
+                <div>
+                  <span className="text-xs text-muted-foreground">Body:</span>
+                  <pre className="mt-1 text-xs font-mono bg-background rounded px-2 py-1 overflow-auto max-h-24">
+                    {(() => { try { return JSON.stringify(JSON.parse(preview.body), null, 2); } catch { return preview.body; } })()}
+                  </pre>
+                </div>
+              )}
+
+              {Object.keys(preview.queryParams).length > 0 && (
+                <div>
+                  <span className="text-xs text-muted-foreground">Query Params:</span>
+                  <div className="mt-1 space-y-1">
+                    {Object.entries(preview.queryParams).map(([k, v]) => (
+                      <div key={k} className="text-xs font-mono bg-background rounded px-2 py-1">
+                        {k}={v}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="ghost">Cancelar</Button>
+          </DialogClose>
+          <DialogClose asChild>
+            <Button onClick={handleConfirm} disabled={!preview}>
+              <CheckCircle2 className="h-4 w-4 mr-2" />
+              Aplicar
+            </Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 const CAMPOS_PADRAO = [
   { key: "nome", label: "Nome do Produto", descricao: "Campo com a descrição/nome do produto" },
@@ -280,13 +478,36 @@ export default function PrecoMapeamentoPage() {
           <TabsContent value="token">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Key className="h-5 w-5 text-primary" />
-                  Configuração do Token
-                </CardTitle>
-                <CardDescription>
-                  Configure como obter e renovar o token de autenticação da API
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Key className="h-5 w-5 text-primary" />
+                      Configuração do Token
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      Configure como obter e renovar o token de autenticação da API
+                    </CardDescription>
+                  </div>
+                  <CurlImportDialog
+                    type="token"
+                    onImport={(parsed) => {
+                      setTokenUrl(parsed.url);
+                      setTokenMethod(parsed.method);
+                      if (parsed.body) {
+                        try {
+                          setTokenBody(JSON.stringify(JSON.parse(parsed.body), null, 2));
+                        } catch {
+                          setTokenBody(parsed.body);
+                        }
+                      }
+                      if (Object.keys(parsed.headers).length > 0) {
+                        // Remove Authorization from token headers (it's auto-managed)
+                        const { Authorization, ...rest } = parsed.headers;
+                        setTokenHeaders(JSON.stringify(rest, null, 2));
+                      }
+                    }}
+                  />
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -366,13 +587,42 @@ export default function PrecoMapeamentoPage() {
           <TabsContent value="consulta">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Globe className="h-5 w-5 text-primary" />
-                  Configuração da Consulta
-                </CardTitle>
-                <CardDescription>
-                  Configure o endpoint de consulta de preço do produto
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Globe className="h-5 w-5 text-primary" />
+                      Configuração da Consulta
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      Configure o endpoint de consulta de preço do produto
+                    </CardDescription>
+                  </div>
+                  <CurlImportDialog
+                    type="consulta"
+                    onImport={(parsed) => {
+                      setConsultaUrl(parsed.url);
+                      setConsultaMethod(parsed.method);
+                      if (Object.keys(parsed.queryParams).length > 0) {
+                        // Detect which param is the EAN
+                        const eanKey = Object.keys(parsed.queryParams).find(k =>
+                          k.toLowerCase().includes('ean') || k.toLowerCase().includes('barcode')
+                        );
+                        if (eanKey) {
+                          setConsultaEanParam(eanKey);
+                          // Remove EAN from fixed params
+                          const { [eanKey]: _, ...fixedParams } = parsed.queryParams;
+                          setConsultaParamsFixos(JSON.stringify(fixedParams, null, 2));
+                        } else {
+                          setConsultaParamsFixos(JSON.stringify(parsed.queryParams, null, 2));
+                        }
+                      }
+                      // Detect auth type from headers
+                      if (parsed.headers['Authorization']?.startsWith('Bearer')) {
+                        setConsultaAuthType('bearer');
+                      }
+                    }}
+                  />
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
