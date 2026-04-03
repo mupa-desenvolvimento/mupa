@@ -9,6 +9,7 @@ import {
   Zap,
   LogOut,
   Smartphone,
+  DollarSign,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
