@@ -170,6 +170,118 @@ export type Database = {
           },
         ]
       }
+      empresa_preco_config: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          consulta_auth_type: string
+          consulta_ean_param: string
+          consulta_headers: Json
+          consulta_method: string
+          consulta_params_fixos: Json
+          consulta_url: string
+          criado_em: string
+          data_path: string
+          empresa_id: string
+          id: string
+          mapeamento_campos: Json
+          token_body: Json
+          token_expiry_field: string | null
+          token_expiry_seconds: number | null
+          token_headers: Json
+          token_method: string
+          token_response_path: string
+          token_url: string
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          consulta_auth_type?: string
+          consulta_ean_param?: string
+          consulta_headers?: Json
+          consulta_method?: string
+          consulta_params_fixos?: Json
+          consulta_url: string
+          criado_em?: string
+          data_path?: string
+          empresa_id: string
+          id?: string
+          mapeamento_campos?: Json
+          token_body?: Json
+          token_expiry_field?: string | null
+          token_expiry_seconds?: number | null
+          token_headers?: Json
+          token_method?: string
+          token_response_path?: string
+          token_url: string
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          consulta_auth_type?: string
+          consulta_ean_param?: string
+          consulta_headers?: Json
+          consulta_method?: string
+          consulta_params_fixos?: Json
+          consulta_url?: string
+          criado_em?: string
+          data_path?: string
+          empresa_id?: string
+          id?: string
+          mapeamento_campos?: Json
+          token_body?: Json
+          token_expiry_field?: string | null
+          token_expiry_seconds?: number | null
+          token_headers?: Json
+          token_method?: string
+          token_response_path?: string
+          token_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_preco_config_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_token_cache: {
+        Row: {
+          criado_em: string
+          empresa_id: string
+          expira_em: string
+          id: string
+          token: string
+          token_type: string | null
+        }
+        Insert: {
+          criado_em?: string
+          empresa_id: string
+          expira_em: string
+          id?: string
+          token: string
+          token_type?: string | null
+        }
+        Update: {
+          criado_em?: string
+          empresa_id?: string
+          expira_em?: string
+          id?: string
+          token?: string
+          token_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_token_cache_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       empresa_usuarios: {
         Row: {
           criado_em: string
