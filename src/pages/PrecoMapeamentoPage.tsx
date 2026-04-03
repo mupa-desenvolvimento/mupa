@@ -587,13 +587,42 @@ export default function PrecoMapeamentoPage() {
           <TabsContent value="consulta">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Globe className="h-5 w-5 text-primary" />
-                  Configuração da Consulta
-                </CardTitle>
-                <CardDescription>
-                  Configure o endpoint de consulta de preço do produto
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Globe className="h-5 w-5 text-primary" />
+                      Configuração da Consulta
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      Configure o endpoint de consulta de preço do produto
+                    </CardDescription>
+                  </div>
+                  <CurlImportDialog
+                    type="consulta"
+                    onImport={(parsed) => {
+                      setConsultaUrl(parsed.url);
+                      setConsultaMethod(parsed.method);
+                      if (Object.keys(parsed.queryParams).length > 0) {
+                        // Detect which param is the EAN
+                        const eanKey = Object.keys(parsed.queryParams).find(k =>
+                          k.toLowerCase().includes('ean') || k.toLowerCase().includes('barcode')
+                        );
+                        if (eanKey) {
+                          setConsultaEanParam(eanKey);
+                          // Remove EAN from fixed params
+                          const { [eanKey]: _, ...fixedParams } = parsed.queryParams;
+                          setConsultaParamsFixos(JSON.stringify(fixedParams, null, 2));
+                        } else {
+                          setConsultaParamsFixos(JSON.stringify(parsed.queryParams, null, 2));
+                        }
+                      }
+                      // Detect auth type from headers
+                      if (parsed.headers['Authorization']?.startsWith('Bearer')) {
+                        setConsultaAuthType('bearer');
+                      }
+                    }}
+                  />
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
