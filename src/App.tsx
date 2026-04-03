@@ -14,6 +14,7 @@ import DocsPage from "./pages/DocsPage";
 import TerminalMediaPage from "./pages/TerminalMediaPage";
 import TerminalPage from "./pages/TerminalPage";
 import DispositivosPage from "./pages/DispositivosPage";
+import PrecoMapeamentoPage from "./pages/PrecoMapeamentoPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
