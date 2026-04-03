@@ -478,13 +478,36 @@ export default function PrecoMapeamentoPage() {
           <TabsContent value="token">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Key className="h-5 w-5 text-primary" />
-                  Configuração do Token
-                </CardTitle>
-                <CardDescription>
-                  Configure como obter e renovar o token de autenticação da API
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Key className="h-5 w-5 text-primary" />
+                      Configuração do Token
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      Configure como obter e renovar o token de autenticação da API
+                    </CardDescription>
+                  </div>
+                  <CurlImportDialog
+                    type="token"
+                    onImport={(parsed) => {
+                      setTokenUrl(parsed.url);
+                      setTokenMethod(parsed.method);
+                      if (parsed.body) {
+                        try {
+                          setTokenBody(JSON.stringify(JSON.parse(parsed.body), null, 2));
+                        } catch {
+                          setTokenBody(parsed.body);
+                        }
+                      }
+                      if (Object.keys(parsed.headers).length > 0) {
+                        // Remove Authorization from token headers (it's auto-managed)
+                        const { Authorization, ...rest } = parsed.headers;
+                        setTokenHeaders(JSON.stringify(rest, null, 2));
+                      }
+                    }}
+                  />
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
