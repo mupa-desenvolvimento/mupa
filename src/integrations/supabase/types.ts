@@ -46,16 +46,18 @@ export type Database = {
           criado_em: string
           empresa_id: string | null
           id: string
+          input_remoto_ativo: boolean
           nome: string
           ultimo_acesso: string | null
         }
         Insert: {
           ativado_em?: string | null
           ativo?: boolean
-          codigo_ativacao: string
+          codigo_ativacao?: string
           criado_em?: string
           empresa_id?: string | null
           id?: string
+          input_remoto_ativo?: boolean
           nome?: string
           ultimo_acesso?: string | null
         }
@@ -66,6 +68,7 @@ export type Database = {
           criado_em?: string
           empresa_id?: string | null
           id?: string
+          input_remoto_ativo?: boolean
           nome?: string
           ultimo_acesso?: string | null
         }
@@ -203,6 +206,7 @@ export type Database = {
         Row: {
           ativo: boolean
           atualizado_em: string
+          codigo_vinculo: string
           criado_em: string
           id: string
           logo_url: string | null
@@ -212,6 +216,7 @@ export type Database = {
         Insert: {
           ativo?: boolean
           atualizado_em?: string
+          codigo_vinculo?: string
           criado_em?: string
           id?: string
           logo_url?: string | null
@@ -221,6 +226,7 @@ export type Database = {
         Update: {
           ativo?: boolean
           atualizado_em?: string
+          codigo_vinculo?: string
           criado_em?: string
           id?: string
           logo_url?: string | null
@@ -477,6 +483,9 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      generate_dispositivo_codigo: { Args: never; Returns: string }
+      generate_empresa_codigo: { Args: never; Returns: string }
+      random_base32_code: { Args: { len?: number }; Returns: string }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
     }
