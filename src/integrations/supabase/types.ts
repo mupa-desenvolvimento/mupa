@@ -46,16 +46,18 @@ export type Database = {
           criado_em: string
           empresa_id: string | null
           id: string
+          input_remoto_ativo: boolean
           nome: string
           ultimo_acesso: string | null
         }
         Insert: {
           ativado_em?: string | null
           ativo?: boolean
-          codigo_ativacao: string
+          codigo_ativacao?: string
           criado_em?: string
           empresa_id?: string | null
           id?: string
+          input_remoto_ativo?: boolean
           nome?: string
           ultimo_acesso?: string | null
         }
@@ -66,6 +68,7 @@ export type Database = {
           criado_em?: string
           empresa_id?: string | null
           id?: string
+          input_remoto_ativo?: boolean
           nome?: string
           ultimo_acesso?: string | null
         }
@@ -167,6 +170,118 @@ export type Database = {
           },
         ]
       }
+      empresa_preco_config: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          consulta_auth_type: string
+          consulta_ean_param: string
+          consulta_headers: Json
+          consulta_method: string
+          consulta_params_fixos: Json
+          consulta_url: string
+          criado_em: string
+          data_path: string
+          empresa_id: string
+          id: string
+          mapeamento_campos: Json
+          token_body: Json
+          token_expiry_field: string | null
+          token_expiry_seconds: number | null
+          token_headers: Json
+          token_method: string
+          token_response_path: string
+          token_url: string
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          consulta_auth_type?: string
+          consulta_ean_param?: string
+          consulta_headers?: Json
+          consulta_method?: string
+          consulta_params_fixos?: Json
+          consulta_url: string
+          criado_em?: string
+          data_path?: string
+          empresa_id: string
+          id?: string
+          mapeamento_campos?: Json
+          token_body?: Json
+          token_expiry_field?: string | null
+          token_expiry_seconds?: number | null
+          token_headers?: Json
+          token_method?: string
+          token_response_path?: string
+          token_url: string
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          consulta_auth_type?: string
+          consulta_ean_param?: string
+          consulta_headers?: Json
+          consulta_method?: string
+          consulta_params_fixos?: Json
+          consulta_url?: string
+          criado_em?: string
+          data_path?: string
+          empresa_id?: string
+          id?: string
+          mapeamento_campos?: Json
+          token_body?: Json
+          token_expiry_field?: string | null
+          token_expiry_seconds?: number | null
+          token_headers?: Json
+          token_method?: string
+          token_response_path?: string
+          token_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_preco_config_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_token_cache: {
+        Row: {
+          criado_em: string
+          empresa_id: string
+          expira_em: string
+          id: string
+          token: string
+          token_type: string | null
+        }
+        Insert: {
+          criado_em?: string
+          empresa_id: string
+          expira_em: string
+          id?: string
+          token: string
+          token_type?: string | null
+        }
+        Update: {
+          criado_em?: string
+          empresa_id?: string
+          expira_em?: string
+          id?: string
+          token?: string
+          token_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_token_cache_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       empresa_usuarios: {
         Row: {
           criado_em: string
@@ -203,6 +318,7 @@ export type Database = {
         Row: {
           ativo: boolean
           atualizado_em: string
+          codigo_vinculo: string
           criado_em: string
           id: string
           logo_url: string | null
@@ -212,6 +328,7 @@ export type Database = {
         Insert: {
           ativo?: boolean
           atualizado_em?: string
+          codigo_vinculo?: string
           criado_em?: string
           id?: string
           logo_url?: string | null
@@ -221,6 +338,7 @@ export type Database = {
         Update: {
           ativo?: boolean
           atualizado_em?: string
+          codigo_vinculo?: string
           criado_em?: string
           id?: string
           logo_url?: string | null
@@ -477,6 +595,9 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      generate_dispositivo_codigo: { Args: never; Returns: string }
+      generate_empresa_codigo: { Args: never; Returns: string }
+      random_base32_code: { Args: { len?: number }; Returns: string }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
     }

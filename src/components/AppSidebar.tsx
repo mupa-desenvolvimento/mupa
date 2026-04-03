@@ -9,6 +9,7 @@ import {
   Zap,
   LogOut,
   Smartphone,
+  DollarSign,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -20,6 +21,7 @@ const navItems = [
   { to: "/docs", icon: FileText, label: "API Docs" },
   { to: "/terminal-media", icon: Monitor, label: "Mídia Terminal" },
   { to: "/dispositivos", icon: Smartphone, label: "Dispositivos" },
+  { to: "/preco-mapeamento", icon: DollarSign, label: "Mapeamento Preços" },
 ];
 
 export default function AppSidebar() {
