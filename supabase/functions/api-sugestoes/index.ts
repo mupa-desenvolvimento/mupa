@@ -7,8 +7,82 @@ const corsHeaders = {
 
 const CACHE_TTL_HOURS = 24;
 
+const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" };
+
+type SupabaseClient = ReturnType<typeof createClient>;
+
+type Produto = {
+  ean: string;
+  nome: string;
+  nome_curto?: string | null;
+  marca?: string | null;
+  categoria?: string | null;
+  clusters?: Record<string, string> | null;
+};
+
+type ProdutoResumo = {
+  ean: string;
+  nome: string;
+  nome_curto: string | null;
+  marca: string | null;
+  categoria: string | null;
+  preco: number | null;
+  preco_lista: number | null;
+  imagem_url_vtex: string | null;
+  motivo?: string;
+};
+
+function sanitizeTerm(term: string) {
+  return term
+    .toLowerCase()
+    .replace(/[,%"]/g, " ")
+    .replace(/['()]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractFallbackTerms(produto: Produto) {
+  const terms: string[] = [];
+
+  const categoriaPath = String(produto?.categoria ?? "");
+  const segments = categoriaPath.split("/").map((s) => s.trim()).filter(Boolean);
+  if (segments.length > 0) {
+    terms.push(segments[segments.length - 1]);
+  }
+  if (segments.length > 1) {
+    terms.push(segments[segments.length - 2]);
+  }
+
+  const clusters = produto?.clusters;
+  if (clusters && typeof clusters === "object") {
+    for (const v of Object.values(clusters)) {
+      if (typeof v !== "string") continue;
+      const cleaned = v
+        .replace(/&/g, " ")
+        .replace(/\//g, " ")
+        .replace(/,/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (cleaned) terms.push(cleaned);
+    }
+  }
+
+  const uniq: string[] = [];
+  const seen = new Set<string>();
+  for (const t of terms) {
+    const s = sanitizeTerm(t);
+    if (!s) continue;
+    if (!seen.has(s)) {
+      seen.add(s);
+      uniq.push(s);
+    }
+    if (uniq.length >= 8) break;
+  }
+  return uniq;
+}
+
 async function getCachedCategories(
-  supabase: any, ean: string, tipo: string, chavePerfil: string | null
+  supabase: SupabaseClient, ean: string, tipo: string, chavePerfil: string | null
 ): Promise<string[] | null> {
   const query = supabase
     .from("sugestoes_cache")
@@ -23,22 +97,25 @@ async function getCachedCategories(
   }
 
   const { data } = await query.maybeSingle();
-  if (!data) return null;
+  const row = data as { categorias_ai?: unknown; criado_em?: unknown } | null;
+  if (!row) return null;
+  if (!Array.isArray(row.categorias_ai)) return null;
+  if (typeof row.criado_em !== "string") return null;
 
-  const age = Date.now() - new Date(data.criado_em).getTime();
+  const age = Date.now() - new Date(row.criado_em).getTime();
   if (age > CACHE_TTL_HOURS * 3600 * 1000) return null;
 
-  return data.categorias_ai;
+  return row.categorias_ai.filter((c): c is string => typeof c === "string");
 }
 
 async function setCachedCategories(
-  supabase: any, ean: string, tipo: string, chavePerfil: string | null, categorias: string[]
+  supabase: SupabaseClient, ean: string, tipo: string, chavePerfil: string | null, categorias: string[]
 ) {
   // Fire and forget - don't await to save time
-  supabase.from("sugestoes_cache").upsert(
+  void supabase.from("sugestoes_cache").upsert(
     { ean, tipo, chave_perfil: chavePerfil, categorias_ai: categorias, criado_em: new Date().toISOString() },
     { onConflict: "ean,tipo,chave_perfil" }
-  ).then(() => {});
+  );
 }
 
 async function fetchAICategories(apiKey: string, systemMsg: string, prompt: string): Promise<string[]> {
@@ -59,19 +136,23 @@ async function fetchAICategories(apiKey: string, systemMsg: string, prompt: stri
     .split(",").map((c: string) => c.trim().toLowerCase()).filter(Boolean);
 }
 
-async function searchProducts(supabase: any, categories: string[], excludeEans: Set<string>, limit: number) {
+async function searchProducts(supabase: SupabaseClient, categories: string[], excludeEans: Set<string>, limit: number) {
   // Run all category searches in parallel
-  const promises = categories.map(cat =>
-    supabase
-      .from("produtos")
-      .select("ean, nome, nome_curto, marca, categoria, preco, preco_lista, imagem_url_vtex")
-      .eq("disponivel", true)
-      .or(`nome.ilike.%${cat}%,nome_curto.ilike.%${cat}%,categoria.ilike.%${cat}%`)
-      .limit(3)
-  );
+  const sanitizedCategories = categories
+    .map((cat) => sanitizeTerm(cat))
+    .filter(Boolean);
 
-  const results: any[] = [];
-  const responses = await Promise.all(promises);
+  const promises = sanitizedCategories.map((cat) =>
+      supabase
+        .from("produtos")
+        .select("ean, nome, nome_curto, marca, categoria, preco, preco_lista, imagem_url_vtex")
+        .eq("disponivel", true)
+        .or(`nome.ilike.%${cat}%,nome_curto.ilike.%${cat}%,categoria.ilike.%${cat}%`)
+        .limit(3)
+    );
+
+  const results: ProdutoResumo[] = [];
+  const responses = await Promise.all(promises) as Array<{ data: ProdutoResumo[] | null }>;
   
   for (let i = 0; i < responses.length; i++) {
     if (results.length >= limit) break;
@@ -80,12 +161,25 @@ async function searchProducts(supabase: any, categories: string[], excludeEans: 
       for (const p of data) {
         if (!excludeEans.has(p.ean) && results.length < limit) {
           excludeEans.add(p.ean);
-          results.push({ ...p, motivo: categories[i] });
+          results.push({ ...p, motivo: sanitizedCategories[i] });
         }
       }
     }
   }
   return results;
+}
+
+function dedupeAndLimit<T extends { ean: string }>(list: T[] | null | undefined, used: Set<string>, limit: number) {
+  const out: T[] = [];
+  for (const item of list ?? []) {
+    const ean = String(item?.ean ?? "").trim();
+    if (!ean) continue;
+    if (used.has(ean)) continue;
+    used.add(ean);
+    out.push(item);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 Deno.serve(async (req) => {
@@ -107,7 +201,7 @@ Deno.serve(async (req) => {
   if (!ean) {
     return new Response(
       JSON.stringify({ error: "Informe ?ean=CODIGO" }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 400, headers: jsonHeaders }
     );
   }
 
@@ -122,7 +216,7 @@ Deno.serve(async (req) => {
     if (error || !produto) {
       return new Response(
         JSON.stringify({ error: "Produto não encontrado", ean }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 404, headers: jsonHeaders }
       );
     }
 
@@ -131,6 +225,7 @@ Deno.serve(async (req) => {
 
     // Run ALL three suggestion types in PARALLEL
     const marcaPromise = (async () => {
+      if (!produto.marca) return [];
       let q = supabase
         .from("produtos")
         .select("ean, nome, nome_curto, marca, categoria, preco, preco_lista, imagem_url_vtex")
@@ -142,15 +237,24 @@ Deno.serve(async (req) => {
     })();
 
     const complementaresPromise = (async () => {
-      if (!LOVABLE_API_KEY) return [];
       try {
         let categories = await getCachedCategories(supabase, ean, "complementares", null);
+
         if (!categories) {
-          const prompt = `Dado o produto "${produto.nome}" (categoria: ${produto.categoria || "desconhecida"}, marca: ${produto.marca || "desconhecida"}), sugira exatamente 5 tipos/categorias de produtos complementares que um cliente provavelmente compraria junto.\nResponda APENAS com os nomes das categorias separados por vírgula, sem explicação.`;
-          categories = await fetchAICategories(LOVABLE_API_KEY,
-            "Você é um especialista em varejo e cross-sell de supermercado brasileiro. Responda apenas com categorias separadas por vírgula.", prompt);
+          if (LOVABLE_API_KEY) {
+            const prompt = `Dado o produto "${produto.nome}" (categoria: ${produto.categoria || "desconhecida"}, marca: ${produto.marca || "desconhecida"}), sugira exatamente 5 tipos/categorias de produtos complementares que um cliente provavelmente compraria junto.\nResponda APENAS com os nomes das categorias separados por vírgula, sem explicação.`;
+            categories = await fetchAICategories(
+              LOVABLE_API_KEY,
+              "Você é um especialista em varejo e cross-sell de supermercado brasileiro. Responda apenas com categorias separadas por vírgula.",
+              prompt
+            );
+          } else {
+            categories = extractFallbackTerms(produto);
+          }
+
           if (categories.length > 0) setCachedCategories(supabase, ean, "complementares", null, categories);
         }
+
         return categories.length > 0 ? await searchProducts(supabase, categories, existingEans, limit) : [];
       } catch (e) { console.error("AI cross-sell error:", e); return []; }
     })();
@@ -176,20 +280,25 @@ Deno.serve(async (req) => {
       marcaPromise, complementaresPromise, perfilPromise
     ]);
 
+    const used = new Set<string>([ean]);
+    const complementaresFinal = dedupeAndLimit(complementares, used, limit);
+    const mesmaMarcaFinal = dedupeAndLimit(marcaResults, used, limit);
+    const perfilFinal = dedupeAndLimit(perfilResults, used, limit);
+
     return new Response(
       JSON.stringify({
         produto_consultado: { ean: produto.ean, nome: produto.nome, marca: produto.marca, categoria: produto.categoria },
-        sugestoes: { mesma_marca: marcaResults, complementares, perfil: perfilResults },
+        sugestoes: { mesma_marca: mesmaMarcaFinal, complementares: complementaresFinal, perfil: perfilFinal },
         parametros_recebidos: { ean, idade: idade || null, genero: genero || null, limit },
         cache_info: { ttl_hours: CACHE_TTL_HOURS },
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: jsonHeaders }
     );
   } catch (e) {
     console.error("Suggestions error:", e);
     return new Response(
       JSON.stringify({ error: e instanceof Error ? e.message : "Erro interno" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 500, headers: jsonHeaders }
     );
   }
 });

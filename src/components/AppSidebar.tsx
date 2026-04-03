@@ -1,4 +1,7 @@
+import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   LayoutDashboard,
   Package,
@@ -12,6 +15,8 @@ import {
   DollarSign,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/button";
+import { PWA_UPDATE_EVENT, applyPwaUpdate } from "@/lib/pwaRegister";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -27,6 +32,38 @@ const navItems = [
 export default function AppSidebar() {
   const location = useLocation();
   const { user, signOut } = useAuth();
+  const queryClient = useQueryClient();
+  const [pwaUpdatePending, setPwaUpdatePending] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    const onPwa = () => setPwaUpdatePending(true);
+    window.addEventListener(PWA_UPDATE_EVENT, onPwa);
+    return () => window.removeEventListener(PWA_UPDATE_EVENT, onPwa);
+  }, []);
+
+  const handleAtualizarReceber = async () => {
+    setRefreshing(true);
+    try {
+      await queryClient.invalidateQueries();
+      toast.success("Dados atualizados do servidor.");
+      try {
+        const reg = await navigator.serviceWorker?.getRegistration();
+        await reg?.update();
+        if (reg?.waiting || pwaUpdatePending) {
+          toast.info("A instalar nova versão da aplicação…");
+          await applyPwaUpdate();
+          setPwaUpdatePending(false);
+        }
+      } catch {
+        /* SW opcional (ex.: dev sem PWA) */
+      }
+    } catch {
+      toast.error("Não foi possível atualizar.");
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <aside className="sidebar-gradient fixed left-0 top-0 h-screen w-64 flex flex-col z-50">
@@ -67,6 +104,16 @@ export default function AppSidebar() {
 
       {/* Footer */}
       <div className="px-6 py-4 border-t border-sidebar-border space-y-3">
+        <Button
+          type="button"
+          variant="secondary"
+          className="w-full justify-center gap-2 bg-sidebar-accent/80 text-sidebar-foreground hover:bg-sidebar-accent border border-sidebar-border"
+          disabled={refreshing}
+          onClick={handleAtualizarReceber}
+        >
+          <RefreshCw className={`h-4 w-4 shrink-0 ${refreshing ? "animate-spin" : ""}`} />
+          {pwaUpdatePending ? "Atualizar e receber (nova versão)" : "Atualizar e receber"}
+        </Button>
         {user && (
           <p className="text-xs text-sidebar-foreground/60 truncate">{user.email}</p>
         )}

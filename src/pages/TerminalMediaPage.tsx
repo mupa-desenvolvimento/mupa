@@ -133,7 +133,7 @@ export default function TerminalMediaPage() {
             case "font_nome": setFontNome(Number(row.valor) || 24); break;
             case "font_preco": setFontPreco(Number(row.valor) || 72); break;
             case "img_size": setImgSize(Number(row.valor) || 280); break;
-            case "max_sugestoes": setMaxSugestoes(Number(row.valor) ?? 3); break;
+            case "max_sugestoes": setMaxSugestoes(Number(row.valor) || 3); break;
             case "cor_auto": setCorAutoEnabled(row.valor !== "false"); break;
             case "cor_fundo": setCorFundo(row.valor); break;
             case "cor_descricao": setCorDescricao(row.valor); break;

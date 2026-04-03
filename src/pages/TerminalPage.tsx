@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import { Barcode } from "lucide-react";
+import { suppressNativeKeyboardProps } from "@/components/virtual-keyboard/suppressNativeKeyboard";
+import { VirtualKeyboard } from "@/components/virtual-keyboard/VirtualKeyboard";
 
 interface Produto {
   ean: string;
@@ -99,6 +101,90 @@ const FALLBACK_THEME: ProductTheme = {
 interface RGB { r: number; g: number; b: number; }
 interface HSL { h: number; s: number; l: number; }
 
+type Orientation = "portrait" | "landscape";
+
+function clamp(min: number, value: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getViewport() {
+  const vv = window.visualViewport;
+  const width = Math.round(vv?.width ?? window.innerWidth);
+  const height = Math.round(vv?.height ?? window.innerHeight);
+  return { width, height };
+}
+
+function hslToRgb({ h, s, l }: HSL): RGB {
+  const hh = ((h % 360) + 360) % 360 / 360;
+  const ss = clamp(0, s, 100) / 100;
+  const ll = clamp(0, l, 100) / 100;
+
+  const hueToRgb = (p: number, q: number, t: number) => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+
+  if (ss === 0) {
+    const v = Math.round(ll * 255);
+    return { r: v, g: v, b: v };
+  }
+
+  const q = ll < 0.5 ? ll * (1 + ss) : ll + ss - ll * ss;
+  const p = 2 * ll - q;
+
+  return {
+    r: Math.round(hueToRgb(p, q, hh + 1 / 3) * 255),
+    g: Math.round(hueToRgb(p, q, hh) * 255),
+    b: Math.round(hueToRgb(p, q, hh - 1 / 3) * 255),
+  };
+}
+
+function makeVivid(rgb: RGB): RGB {
+  const hsl = rgbToHsl(rgb);
+  const boostedS = clamp(55, Math.max(hsl.s, 72) * 1.08, 95);
+  const boostedL = clamp(28, hsl.l > 82 ? 66 : hsl.l < 18 ? 30 : hsl.l, 75);
+  return hslToRgb({ h: hsl.h, s: boostedS, l: boostedL });
+}
+
+function normalizeProductName(raw: string) {
+  const original = raw.replace(/\s+/g, " ").trim();
+
+  const expanded = original
+    .replace(/\bS\/AÇU?C\b/gi, "Sem Açúcar")
+    .replace(/\bS\/\b/gi, "Sem ")
+    .replace(/\bC\/\b/gi, "Com ")
+    .replace(/\bREFRI\b/gi, "Refrigerante")
+    .replace(/\bDESNAT\b/gi, "Desnatado")
+    .replace(/\bINTEG\b/gi, "Integral");
+
+  const keepUpper = new Set(["UHT", "PET", "ML", "L", "KG", "G"]);
+  const tokens = expanded.split(" ").filter(Boolean);
+  const out = tokens.map((t) => {
+    const cleaned = t.replace(/[^\p{L}\p{N}]/gu, "");
+    if (!cleaned) return t;
+    if (/^\d+([.,]\d+)?(ml|l|g|kg)$/i.test(cleaned)) return cleaned.toUpperCase();
+    if (/^\d+(x\d+)?$/i.test(cleaned)) return cleaned.toUpperCase();
+    if (keepUpper.has(cleaned.toUpperCase())) return cleaned.toUpperCase();
+    if (cleaned.length <= 2 && cleaned === cleaned.toUpperCase()) return cleaned.toUpperCase();
+    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+  });
+
+  return out.join(" ").trim();
+}
+
+function splitHighlight(text: string, count = 3) {
+  const words = text.split(/\s+/).filter(Boolean);
+  return {
+    highlight: words.slice(0, count).join(" "),
+    rest: words.slice(count).join(" "),
+  };
+}
+
 function rgbToHsl({ r, g, b }: RGB): HSL {
   r /= 255; g /= 255; b /= 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -180,7 +266,7 @@ function kMeansClusters(pixels: RGB[], k: number, iterations = 10): { center: RG
     }
   }
 
-  let assignments = new Array(pixels.length).fill(0);
+  const assignments = new Array(pixels.length).fill(0);
 
   for (let iter = 0; iter < iterations; iter++) {
     for (let i = 0; i < pixels.length; i++) {
@@ -238,10 +324,37 @@ function extractPalette(imgUrl: string): Promise<RGB[]> {
 
         if (pixels.length < 10) { resolve([]); return; }
 
-        const clusters = kMeansClusters(pixels, 5, 12);
+        const clusters = kMeansClusters(pixels, 6, 12);
         clusters.sort((a, b) => b.count - a.count);
 
-        resolve(clusters.slice(0, 4).map(c => c.center));
+        const scored = clusters
+          .slice(0, 10)
+          .map((c) => {
+            const hsl = rgbToHsl(c.center);
+            const s = clamp(0, hsl.s, 100) / 100;
+            const l = clamp(0, hsl.l, 100) / 100;
+            const vividness = s * (1 - Math.abs(l - 0.5));
+            return { ...c, hsl, score: c.count * (0.55 + vividness) };
+          })
+          .sort((a, b) => b.score - a.score);
+
+        const chosen: RGB[] = [];
+        const minHueDistance = 18;
+        for (const s of scored) {
+          if (chosen.length >= 3) break;
+          const tooClose = chosen.some((p) => {
+            const hp = rgbToHsl(p).h;
+            const d = Math.abs(hp - s.hsl.h);
+            return Math.min(d, 360 - d) < minHueDistance;
+          });
+          if (!tooClose) chosen.push(makeVivid(s.center));
+        }
+
+        while (chosen.length < 3 && scored[chosen.length]) {
+          chosen.push(makeVivid(scored[chosen.length].center));
+        }
+
+        resolve(chosen.slice(0, 3));
       } catch { resolve([]); }
     };
     img.onerror = () => resolve([]);
@@ -253,38 +366,31 @@ const themeCache = new Map<string, ProductTheme>();
 
 function _generateTheme(colors: RGB[]): ProductTheme {
   if (colors.length === 0) return FALLBACK_THEME;
-  const withHsl = colors.map(c => ({ rgb: c, hsl: rgbToHsl(c) }));
-  const byVibrancy = [...withHsl].sort((a, b) =>
-    (b.hsl.s * (100 - Math.abs(b.hsl.l - 50))) - (a.hsl.s * (100 - Math.abs(a.hsl.l - 50)))
-  );
-  const primary = withHsl[0].rgb;
-  const secondary = withHsl[1]?.rgb || darkenRgb(primary, 0.7);
-  const accent = byVibrancy[0].rgb;
-  const tertiary = withHsl[2]?.rgb || lightenRgb(primary, 0.3);
-  const fourth = withHsl[3]?.rgb || darkenRgb(secondary, 0.5);
+  const base = colors.slice(0, 3).map(makeVivid);
+  const primary = base[0];
+  const secondary = base[1] ?? darkenRgb(primary, 0.65);
+  const accent = base[2] ?? makeVivid(lightenRgb(primary, 0.15));
+  const tertiary = makeVivid(lightenRgb(secondary, 0.18));
+  const fourth = makeVivid(darkenRgb(accent, 0.15));
 
-  // LIGHT backgrounds: very light tinted versions of palette colors
-  const bg1 = lightenRgb(primary, 0.88);
-  const bg2 = lightenRgb(secondary, 0.9);
-  const bg3 = lightenRgb(tertiary, 0.92);
+  const bg1 = lightenRgb(primary, 0.94);
+  const bg2 = lightenRgb(secondary, 0.95);
+  const bg3 = lightenRgb(accent, 0.96);
 
   // Dark text for light bg
   const textColor = "#1a1a1a";
   const textMuted = "rgba(0,0,0,0.45)";
 
-  // Banner keeps vivid color
-  const bannerDark = darkenRgb(accent, 0.7);
-  const cardColor = rgbaStr(primary, 0.05);
+  const bannerDark = darkenRgb(accent, 0.75);
+  const cardColor = rgbaStr(primary, 0.06);
 
-  // Main container: lightened primary
-  const containerLight = lightenRgb(primary, 0.72);
-  const containerLighter = lightenRgb(primary, 0.82);
+  const containerLight = lightenRgb(primary, 0.78);
+  const containerLighter = lightenRgb(primary, 0.88);
   const containerLum = luminance(containerLight);
   const containerTextColor = containerLum > 0.4 ? "#1a1a1a" : "#ffffff";
   const containerTextMuted = containerLum > 0.4 ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)";
 
-  // Price container: secondary color
-  const secDark = darkenRgb(secondary, 0.75);
+  const secDark = darkenRgb(secondary, 0.78);
   const priceLum = luminance(secondary);
   const priceTextColor = priceLum > 0.18 ? "#1a1a1a" : "#ffffff";
   const priceTextMuted = priceLum > 0.18 ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.75)";
@@ -335,9 +441,25 @@ export default function TerminalPage() {
     return !!localStorage.getItem("mupa_device_id");
   });
   const [activationCode, setActivationCode] = useState("");
+  const [activationDeviceName, setActivationDeviceName] = useState(() => {
+    return localStorage.getItem("mupa_device_name") || "";
+  });
+  const [activationField, setActivationField] = useState<"codigo" | "nome">("codigo");
   const [activationError, setActivationError] = useState<string | null>(null);
   const [activatingDevice, setActivatingDevice] = useState(false);
   const [deviceEmpresa, setDeviceEmpresa] = useState<string | null>(null);
+
+  const sanitizeDeviceName = (raw: string) => {
+    const trimmed = raw.replace(/\s+/g, " ").trim();
+    let out = "";
+    for (let i = 0; i < trimmed.length; i += 1) {
+      const c = trimmed.charCodeAt(i);
+      if (c < 32 || c === 127) continue;
+      out += trimmed[i];
+      if (out.length >= 40) break;
+    }
+    return out;
+  };
 
   const activateDevice = async () => {
     const code = activationCode.trim().toUpperCase();
@@ -345,30 +467,42 @@ export default function TerminalPage() {
     setActivatingDevice(true);
     setActivationError(null);
     try {
-      const { data, error } = await supabase
-        .from("dispositivos")
-        .select("id, empresa_id, ativo")
-        .eq("codigo_ativacao", code)
-        .maybeSingle();
-      if (error) throw error;
-      if (!data) {
-        setActivationError("Código inválido. Verifique e tente novamente.");
+      const deviceId = localStorage.getItem("mupa_device_id");
+      const deviceName = sanitizeDeviceName(activationDeviceName) || "Terminal";
+      const { data, error } = await supabase.functions.invoke("api-ativar-dispositivo", {
+        body: {
+          codigo_empresa: code,
+          device_id: deviceId || null,
+          device_name: deviceName,
+        },
+      });
+
+      if (error) {
+        const msg = error.message || "Erro ao ativar dispositivo";
+        setActivationError(
+          msg.includes("Failed to send a request to the Edge Function")
+            ? "Função de ativação indisponível. Publique a Edge Function 'api-ativar-dispositivo' no Supabase."
+            : msg,
+        );
         setActivatingDevice(false);
         return;
       }
-      // Activate device
-      await supabase.from("dispositivos").update({
-        ativo: true,
-        ativado_em: new Date().toISOString(),
-        ultimo_acesso: new Date().toISOString(),
-      }).eq("id", data.id);
 
-      localStorage.setItem("mupa_device_id", data.id);
-      localStorage.setItem("mupa_empresa_id", data.empresa_id || "");
-      setDeviceEmpresa(data.empresa_id);
+      const dispositivo = (data as { dispositivo?: { id?: string; empresa_id?: string | null } } | null)?.dispositivo ?? null;
+      if (!dispositivo?.id) {
+        setActivationError("Resposta inválida do servidor");
+        setActivatingDevice(false);
+        return;
+      }
+
+      localStorage.setItem("mupa_device_id", dispositivo.id);
+      localStorage.setItem("mupa_empresa_id", dispositivo.empresa_id || "");
+      localStorage.setItem("mupa_device_name", deviceName);
+      setDeviceEmpresa(dispositivo.empresa_id ?? null);
       setDeviceActivated(true);
-    } catch (e: any) {
-      setActivationError(e.message || "Erro ao ativar dispositivo");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setActivationError(message || "Erro ao ativar dispositivo");
     }
     setActivatingDevice(false);
   };
@@ -377,11 +511,6 @@ export default function TerminalPage() {
   useEffect(() => {
     const empresaId = localStorage.getItem("mupa_empresa_id");
     if (empresaId) setDeviceEmpresa(empresaId);
-    // Update last access
-    const deviceId = localStorage.getItem("mupa_device_id");
-    if (deviceId) {
-      supabase.from("dispositivos").update({ ultimo_acesso: new Date().toISOString() }).eq("id", deviceId).then(() => {});
-    }
   }, []);
 
   const [ean, setEan] = useState("");
@@ -389,16 +518,13 @@ export default function TerminalPage() {
   const [sugestoes, setSugestoes] = useState<Sugestoes | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
   const [tipoSugestao, setTipoSugestao] = useState<string>("complementares");
   const [beepEnabled, setBeepEnabled] = useState(true);
   const [ttsEnabled, setTtsEnabled] = useState(true);
-  const [inputFocused, setInputFocused] = useState(false);
   const [fontNome, setFontNome] = useState(24);
   const [fontPreco, setFontPreco] = useState(72);
-  const [imgSize, setImgSize] = useState(280);
   const [maxSugestoes, setMaxSugestoes] = useState(3);
   const [corAutoEnabled, setCorAutoEnabled] = useState(true);
   const [corFundo, setCorFundo] = useState("#1a0a0a");
@@ -406,10 +532,12 @@ export default function TerminalPage() {
   const [corPreco, setCorPreco] = useState("#ffffff");
   const [wavesEnabled, setWavesEnabled] = useState(false);
   const [theme, setTheme] = useState<ProductTheme | null>(null);
+  const [viewport, setViewport] = useState(() => getViewport());
+  const orientation: Orientation = viewport.height < viewport.width ? "landscape" : "portrait";
+  const lastOrientationSentRef = useRef<{ value: Orientation; ts: number } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const hiddenInputRef = useRef<HTMLInputElement>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const activeTheme = useMemo<ProductTheme>(() => {
@@ -433,7 +561,7 @@ export default function TerminalPage() {
   useEffect(() => {
     let wakeLock: WakeLockSentinel | null = null;
     const requestWakeLock = async () => {
-      try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); } catch {}
+      try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); } catch { wakeLock = null; }
     };
     requestWakeLock();
     const onVisibilityChange = () => { if (document.visibilityState === "visible") requestWakeLock(); };
@@ -442,14 +570,55 @@ export default function TerminalPage() {
   }, []);
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const enterFs = async () => { try { if (!document.fullscreenElement) await el.requestFullscreen(); } catch {} };
-    enterFs();
-    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", onFsChange);
-    return () => document.removeEventListener("fullscreenchange", onFsChange);
+    const enterFullscreen = async () => {
+      const node = containerRef.current;
+      if (!node) return;
+      try {
+        if (!document.fullscreenElement) await node.requestFullscreen();
+      } catch {
+        return;
+      }
+    };
+
+    void enterFullscreen();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void enterFullscreen();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
+
+  useEffect(() => {
+    const update = () => setViewport(getViewport());
+    const vv = window.visualViewport;
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    vv?.addEventListener("resize", update);
+    vv?.addEventListener("scroll", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+      vv?.removeEventListener("resize", update);
+      vv?.removeEventListener("scroll", update);
+    };
+  }, []);
+
+  useEffect(() => {
+    const now = Date.now();
+    const last = lastOrientationSentRef.current;
+    if (last && last.value === orientation && now - last.ts < 1500) return;
+    lastOrientationSentRef.current = { value: orientation, ts: now };
+    const detail = { orientation, width: viewport.width, height: viewport.height };
+    window.dispatchEvent(new CustomEvent("mupa:orientation", { detail }));
+    try {
+      localStorage.setItem("mupa_orientation", JSON.stringify(detail));
+    } catch {
+      return;
+    }
+  }, [orientation, viewport.height, viewport.width]);
 
   const loadConfig = useCallback(async () => {
     const { data } = await supabase.from("terminal_config").select("chave, valor");
@@ -461,8 +630,7 @@ export default function TerminalPage() {
           case "tts_enabled": setTtsEnabled(row.valor !== "false"); break;
           case "font_nome": setFontNome(Number(row.valor) || 24); break;
           case "font_preco": setFontPreco(Number(row.valor) || 72); break;
-          case "img_size": setImgSize(Number(row.valor) || 280); break;
-          case "max_sugestoes": setMaxSugestoes(Number(row.valor) ?? 3); break;
+          case "max_sugestoes": setMaxSugestoes(Number(row.valor) || 3); break;
           case "cor_auto": setCorAutoEnabled(row.valor !== "false"); break;
           case "cor_fundo": setCorFundo(row.valor); break;
           case "cor_descricao": setCorDescricao(row.valor); break;
@@ -492,28 +660,6 @@ export default function TerminalPage() {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const resetIdleTimer = useCallback(() => {
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = setTimeout(() => {
-      setProduto(null); setSugestoes(null); setEan(""); setError(null);
-      setTheme(null);
-      if (currentAudioRef.current) { currentAudioRef.current.pause(); currentAudioRef.current = null; }
-      inputRef.current?.focus();
-    }, 30_000);
-  }, []);
-
-  useEffect(() => {
-    if (produto) resetIdleTimer();
-    return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
-  }, [produto, resetIdleTimer]);
-
-  useEffect(() => {
-    const handler = () => { if (produto) resetIdleTimer(); };
-    window.addEventListener("pointerdown", handler);
-    window.addEventListener("keydown", handler);
-    return () => { window.removeEventListener("pointerdown", handler); window.removeEventListener("keydown", handler); };
-  }, [produto, resetIdleTimer]);
-
   useEffect(() => {
     if (error) {
       if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
@@ -540,35 +686,6 @@ export default function TerminalPage() {
     return () => clearTimeout(timer);
   }, [isIdle, currentMediaIndex, mediaList]);
 
-  useEffect(() => {
-    const keepFocus = () => {
-      if (inputRef.current && document.activeElement !== inputRef.current) inputRef.current.focus({ preventScroll: true });
-    };
-    const interval = setInterval(keepFocus, 200);
-    keepFocus();
-    const onPointerDown = () => setTimeout(keepFocus, 50);
-    const onVisibility = () => { if (document.visibilityState === "visible") keepFocus(); };
-    const onFsChange = () => setTimeout(keepFocus, 100);
-    window.addEventListener("pointerdown", onPointerDown, true);
-    window.addEventListener("touchstart", onPointerDown, true);
-    document.addEventListener("visibilitychange", onVisibility);
-    document.addEventListener("fullscreenchange", onFsChange);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener("pointerdown", onPointerDown, true);
-      window.removeEventListener("touchstart", onPointerDown, true);
-      document.removeEventListener("visibilitychange", onVisibility);
-      document.removeEventListener("fullscreenchange", onFsChange);
-    };
-  }, []);
-
-  const toggleFullscreen = async () => {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await containerRef.current?.requestFullscreen();
-    } catch { }
-  };
-
   const playBeep = useCallback(() => {
     try {
       const ctx = new AudioContext();
@@ -579,10 +696,28 @@ export default function TerminalPage() {
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
       osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
-    } catch { }
+    } catch { return; }
   }, []);
 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const clearConsult = useCallback(() => {
+    setProduto(null);
+    setSugestoes(null);
+    setEan("");
+    setError(null);
+    setTheme(null);
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!produto) return;
+    const timer = window.setTimeout(() => clearConsult(), 8000);
+    return () => window.clearTimeout(timer);
+  }, [produto, clearConsult]);
 
   const speakPrice = useCallback(async (preco: number, precoLista?: number, currentTipoSugestao?: string) => {
     try {
@@ -606,7 +741,7 @@ export default function TerminalPage() {
       if (data.audio_url) {
         const audio = new Audio(data.audio_url);
         currentAudioRef.current = audio;
-        audio.play().catch(() => {});
+        audio.play().catch(() => undefined);
       }
     } catch (e) {
       console.error("TTS error:", e);
@@ -628,8 +763,8 @@ export default function TerminalPage() {
         if (ttsEnabled) {
           fetch(`${BASE_URL}/tts-audio?tipo=indisponivel`)
             .then(r => r.json())
-            .then(d => { if (d.audio_url) { const a = new Audio(d.audio_url); currentAudioRef.current = a; a.play().catch(() => {}); } })
-            .catch(() => {});
+            .then(d => { if (d.audio_url) { const a = new Audio(d.audio_url); currentAudioRef.current = a; a.play().catch(() => undefined); } })
+            .catch(() => undefined);
         }
         setLoading(false);
         return;
@@ -645,7 +780,7 @@ export default function TerminalPage() {
       }
 
       fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=${maxSugestoes || 3}`)
-        .then(r => r.json()).then(d => setSugestoes(d.sugestoes)).catch(() => { });
+        .then(r => r.json()).then(d => setSugestoes(d.sugestoes)).catch(() => undefined);
 
       setLoading(false);
     } catch {
@@ -654,7 +789,149 @@ export default function TerminalPage() {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === "Enter") consultar(); };
+  const activateDeviceRef = useRef(activateDevice);
+  activateDeviceRef.current = activateDevice;
+
+  const consultarRef = useRef(consultar);
+  consultarRef.current = consultar;
+
+  useEffect(() => {
+    const focus = () => {
+      hiddenInputRef.current?.focus({ preventScroll: true });
+    };
+
+    const interval = window.setInterval(focus, 200);
+    focus();
+
+    const onPointerDown = () => window.setTimeout(focus, 50);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("touchstart", onPointerDown, true);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") focus();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("touchstart", onPointerDown, true);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  const onHiddenKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (!deviceActivated) void activateDeviceRef.current();
+      else void consultarRef.current();
+      return;
+    }
+
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      if (!deviceActivated) {
+        if (activationField === "codigo") setActivationCode((prev) => prev.slice(0, -1));
+        else setActivationDeviceName((prev) => prev.slice(0, -1));
+      }
+      else setEan((prev) => prev.slice(0, -1));
+      return;
+    }
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (!deviceActivated) {
+        if (activationField === "codigo") setActivationCode("");
+        else setActivationDeviceName("");
+      }
+      else clearConsult();
+    }
+  };
+
+  const appendActivationKey = (k: string) => {
+    if (activationField === "codigo") {
+      const cleaned = k.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+      if (!cleaned) return;
+      setActivationError(null);
+      setActivationCode((prev) => (prev + cleaned).toUpperCase().slice(0, 12));
+      return;
+    }
+    const next = sanitizeDeviceName(activationDeviceName + k);
+    setActivationDeviceName(next);
+  };
+
+  const backspaceActivation = () => {
+    if (activationField === "codigo") setActivationCode((prev) => prev.slice(0, -1));
+    else setActivationDeviceName((prev) => prev.slice(0, -1));
+  };
+
+  const onHiddenChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    e.target.value = "";
+    if (!raw) return;
+
+    if (!deviceActivated) {
+      if (activationField === "codigo") {
+        const cleaned = raw.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+        if (!cleaned) return;
+        setActivationError(null);
+        setActivationCode((prev) => (prev + cleaned).toUpperCase().slice(0, 12));
+        return;
+      }
+      setActivationDeviceName((prev) => sanitizeDeviceName(prev + raw));
+      return;
+    }
+
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) return;
+    setEan((prev) => (prev + digits).slice(0, 20));
+  };
+
+  useEffect(() => {
+    const id = localStorage.getItem("mupa_device_id");
+    if (!deviceActivated || !id) return;
+
+    const inputRemotoRef = { current: false };
+    void supabase
+      .from("dispositivos")
+      .select("input_remoto_ativo")
+      .eq("id", id)
+      .single()
+      .then(({ data }) => {
+        inputRemotoRef.current = !!data?.input_remoto_ativo;
+      });
+
+    const rowCh = supabase
+      .channel(`dispositivos-row-${id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "dispositivos", filter: `id=eq.${id}` },
+        (payload) => {
+          const n = payload.new as { input_remoto_ativo?: boolean };
+          if (typeof n.input_remoto_ativo === "boolean") inputRemotoRef.current = n.input_remoto_ativo;
+        },
+      )
+      .subscribe();
+
+    const eanCh = supabase
+      .channel(`terminal-ean-${id}`)
+      .on("broadcast", { event: "ean" }, ({ payload }) => {
+        if (!inputRemotoRef.current) return;
+        const p = payload as { ean?: string } | null;
+        const raw = p?.ean;
+        if (raw == null || raw === "") return;
+        const digits = String(raw).replace(/\D/g, "");
+        if (!digits) return;
+        void consultarRef.current(digits);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(rowCh);
+      supabase.removeChannel(eanCh);
+    };
+  }, [deviceActivated]);
 
   const formatPrice = (value: number) => {
     const [reais, centavos] = value.toFixed(2).split(".");
@@ -682,63 +959,103 @@ export default function TerminalPage() {
     : `linear-gradient(160deg, #f5f0ef 0%, #f8f2f1 50%, #faf6f5 100%)`;
 
   const transitionStyle = "background 1s ease, color 0.6s ease";
+  const vw = viewport.width;
+  const vh = viewport.height;
+  const isLandscape = orientation === "landscape";
+  const minDim = Math.min(vw, vh);
+  const padding = Math.round(minDim * 0.03);
+  const gap = Math.round(minDim * 0.024);
+  const footerSpace = Math.round(clamp(44, vh * 0.085, 96));
 
   // ── Activation Screen ──
   if (!deviceActivated) {
     return (
-      <div className="terminal-page flex items-center justify-center" style={{ background: "linear-gradient(160deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)", cursor: "default" }}>
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
-          className="flex flex-col items-center gap-8 p-12 rounded-3xl"
-          style={{ background: "rgba(255,255,255,0.05)", backdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.1)", maxWidth: 480 }}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-              <Barcode className="w-7 h-7 text-white" />
+      <div
+        ref={containerRef}
+        className="terminal-page flex min-h-[100dvh] flex-col"
+        style={{ background: "linear-gradient(160deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)", cursor: "default" }}
+      >
+        <input
+          ref={hiddenInputRef}
+          type="text"
+          autoFocus
+          aria-hidden="true"
+          onKeyDown={onHiddenKeyDown}
+          onChange={onHiddenChange}
+          style={{ position: "absolute", opacity: 0, width: 1, height: 1, left: -10, top: -10 }}
+          {...suppressNativeKeyboardProps}
+        />
+        <div className="flex flex-1 items-center justify-center p-4 pb-2">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5 }}
+            className="flex flex-col items-center gap-8 p-12 rounded-3xl w-full max-w-lg"
+            style={{ background: "rgba(255,255,255,0.05)", backdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.1)", maxWidth: 480 }}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                <Barcode className="w-7 h-7 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-white">Mupa Terminal</h1>
+                <p className="text-sm text-white/50">Ativação de Dispositivo</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">Mupa Terminal</h1>
-              <p className="text-sm text-white/50">Ativação de Dispositivo</p>
-            </div>
-          </div>
 
-          <p className="text-white/70 text-center text-sm leading-relaxed">
-            Digite o código de ativação fornecido pelo administrador ou escaneie o QR Code para vincular este terminal à sua empresa.
-          </p>
+            <p className="text-white/70 text-center text-sm leading-relaxed">
+              Digite o código da empresa para vincular este terminal ao cliente correto.
+            </p>
 
-          <div className="w-full space-y-3">
-            <input
-              type="text"
-              placeholder="Ex: ABCD1234"
-              value={activationCode}
-              onChange={(e) => setActivationCode(e.target.value.toUpperCase())}
-              onKeyDown={(e) => e.key === "Enter" && activateDevice()}
-              maxLength={12}
-              className="w-full text-center text-2xl font-mono tracking-[0.3em] px-4 py-4 rounded-xl border bg-white/10 text-white placeholder:text-white/30 border-white/20 focus:border-blue-400 focus:outline-none transition-colors"
-              autoFocus
-            />
-            {activationError && (
-              <motion.p
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-red-400 text-sm text-center"
+            <div className="w-full space-y-3">
+              <div className="grid gap-3">
+                <button
+                  type="button"
+                  onClick={() => setActivationField("nome")}
+                  className="w-full text-left px-4 py-3 rounded-xl border bg-white/10 text-white border-white/20 transition-colors"
+                  style={{ borderColor: activationField === "nome" ? "rgba(96,165,250,0.9)" : "rgba(255,255,255,0.2)" }}
+                >
+                  <div className="text-[11px] text-white/50 font-semibold tracking-wider uppercase">Nome do terminal</div>
+                  <div className="text-lg font-semibold mt-1">{activationDeviceName || "Terminal"}</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActivationField("codigo")}
+                  className="w-full text-center text-2xl font-mono tracking-[0.3em] px-4 py-4 rounded-xl border bg-white/10 text-white border-white/20 transition-colors"
+                  style={{ borderColor: activationField === "codigo" ? "rgba(96,165,250,0.9)" : "rgba(255,255,255,0.2)" }}
+                >
+                  {activationCode || "—"}
+                </button>
+              </div>
+              {activationError && (
+                <motion.p
+                  initial={{ opacity: 0, y: -5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-red-400 text-sm text-center"
+                >
+                  {activationError}
+                </motion.p>
+              )}
+              <button
+                type="button"
+                onClick={activateDevice}
+                disabled={!activationCode.trim() || activatingDevice}
+                className="w-full py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all"
               >
-                {activationError}
-              </motion.p>
-            )}
-            <button
-              onClick={activateDevice}
-              disabled={!activationCode.trim() || activatingDevice}
-              className="w-full py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all"
-            >
-              {activatingDevice ? "Ativando..." : "Ativar Dispositivo"}
-            </button>
-          </div>
+                {activatingDevice ? "Ativando..." : "Ativar Terminal"}
+              </button>
+            </div>
+          </motion.div>
+        </div>
 
-          <p className="text-white/30 text-xs">Catálogo Mupa v1.0</p>
-        </motion.div>
+        <VirtualKeyboard
+          mode={activationField === "codigo" ? "activation" : "full"}
+          onKey={appendActivationKey}
+          onBackspace={backspaceActivation}
+          onEnter={activateDevice}
+          dark
+        />
       </div>
     );
   }
@@ -750,31 +1067,15 @@ export default function TerminalPage() {
       style={{ background: bgGradient, cursor: "none", transition: transitionStyle }}
     >
       <input
-        ref={inputRef} type="text" inputMode="none" value={ean}
-        onChange={(e) => setEan(e.target.value)} onKeyDown={handleKeyDown}
-        onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)}
+        ref={hiddenInputRef}
+        type="text"
         autoFocus
-        style={{ position: "absolute", opacity: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}
+        aria-hidden="true"
+        onKeyDown={onHiddenKeyDown}
+        onChange={onHiddenChange}
+        style={{ position: "absolute", opacity: 0, width: 1, height: 1, left: -10, top: -10 }}
+        {...suppressNativeKeyboardProps}
       />
-
-      <div className="absolute bottom-2 left-2 z-50 flex items-center gap-1" style={{ opacity: 0.6 }}>
-        <div className="w-2 h-2 rounded-full transition-colors duration-300"
-          style={{ backgroundColor: inputFocused ? "#22c55e" : "#ef4444" }} />
-      </div>
-
-      <button
-        onClick={toggleFullscreen}
-        className="absolute top-3 right-3 z-50 w-8 h-8 rounded-lg flex items-center justify-center text-black/20 hover:text-black/50 transition-colors"
-        style={{ background: "rgba(0,0,0,0.03)" }}
-        title={isFullscreen ? "Sair do fullscreen" : "Entrar em fullscreen"}
-      >
-        {isFullscreen ? (
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-        ) : (
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-        )}
-      </button>
-
       <AnimatePresence>
         {produto && (
           <>
@@ -843,7 +1144,6 @@ export default function TerminalPage() {
         {loading && (
           <motion.div className="terminal-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="terminal-spinner" />
-            <p className="text-lg mt-4" style={{ color: t.textMuted }}>Consultando...</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -871,122 +1171,35 @@ export default function TerminalPage() {
               exit={{ opacity: 0, y: 20 }}
               transition={{ duration: 0.3 }}
             >
-              {/* Product Image - OUTSIDE the main container */}
-              <motion.div
-                className="terminal-product-image-top"
-                initial={{ scale: 0.5, opacity: 0, y: 40 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.1, type: "spring", stiffness: 200, damping: 20 }}
-                style={{ width: imgSize, height: imgSize }}
-              >
-                {produto.imagem_url_vtex ? (
-                  <img src={produto.imagem_url_vtex} alt={produto.nome} className="terminal-product-image-large"
-                    style={{ maxWidth: imgSize, maxHeight: imgSize }} />
-                ) : (
-                  <div className="terminal-no-image-large" style={{ width: imgSize, height: imgSize }}>
-                    <Barcode className="w-20 h-20 text-black/15" />
-                  </div>
-                )}
-              </motion.div>
+              {(() => {
+                const cleanedName = normalizeProductName(produto.nome);
+                const { highlight, rest } = splitHighlight(cleanedName, 3);
+                const nameScale = fontNome / 24;
+                const priceScale = fontPreco / 72;
+                const titleSize = clamp(35, Math.round(minDim * 0.052 * nameScale), 60);
+                const restSize = clamp(18, Math.round(titleSize * 0.58), 34);
+                const brandSize = clamp(12, Math.round(minDim * 0.018), 18);
+                const priceReaisSize = clamp(70, Math.round(minDim * 0.14 * priceScale), 150);
+                const centsSize = Math.round(priceReaisSize * 0.42);
+                const containerRadius = Math.round(clamp(18, minDim * 0.03, 34));
+                const imagePanelWidth = isLandscape ? Math.round(vw * 0.4) : vw - padding * 2;
+                const imageMaxHeight = isLandscape ? Math.round(vh * 0.76) : Math.round(vh * 0.38);
+                const suggestionCols = isLandscape ? 3 : vw < 520 ? 2 : 3;
+                const suggestionTitle =
+                  tipoSugestao === "mesma_marca"
+                    ? "Veja os produtos da mesma marca"
+                    : tipoSugestao === "perfil"
+                      ? "Recomendados pra você"
+                      : "Uma ótima combinação pra você";
 
-              {/* MAIN COLORED CONTAINER - wraps description + price + suggestions */}
-              <motion.div
-                className="terminal-main-container"
-                style={{
-                  background: t.containerGradient,
-                  transition: "background 0.8s ease",
-                }}
-                initial={{ opacity: 0, y: 40 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.2, ease: "easeOut" }}
-              >
-                {/* Description sub-container (white/translucent) */}
-                <motion.div
-                  className="terminal-desc-card"
-                  initial={{ x: -60, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  transition={{ duration: 0.4, delay: 0.3, ease: "easeOut" }}
-                >
-                  {(() => {
-                    const fullName = produto.nome_curto || produto.nome;
-                    const words = fullName.split(/\s+/);
-                    const highlight = words.slice(0, 3).join(" ");
-                    const rest = words.slice(3).join(" ");
-                    return (
-                      <>
-                        <h1 className="terminal-desc-highlight" style={{ fontSize: Math.max(fontNome, 28) }}>
-                          {highlight}
-                        </h1>
-                        {rest && (
-                          <p className="terminal-desc-details" style={{ fontSize: Math.max(fontNome * 0.7, 16) }}>
-                            {rest}
-                          </p>
-                        )}
-                      </>
-                    );
-                  })()}
-                  {produto.marca && (
-                    <p className="terminal-desc-brand">{produto.marca}</p>
-                  )}
-                </motion.div>
-
-                {/* Price sub-container (secondary color) */}
-                <motion.div
-                  className="terminal-price-container"
-                  style={{
-                    background: t.priceContainerGradient,
-                    boxShadow: `0 8px 30px ${t.priceContainerBg}44`,
-                    transition: "background 0.8s ease, box-shadow 0.8s ease",
-                  }}
-                  initial={{ opacity: 0, y: 30, scale: 0.9 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{ duration: 0.4, delay: 0.4, type: "spring", stiffness: 250, damping: 22 }}
-                >
-                  {hasDiscount && (
-                    <p className="terminal-container-old-price" style={{ color: t.priceTextMuted }}>
-                      De R$ {produto.preco_lista!.toFixed(2)}
-                    </p>
-                  )}
-                  <div className="terminal-container-price" style={{ color: t.priceTextColor }}>
-                    <span className="terminal-container-price-symbol">R$</span>
-                    <motion.span
-                      className="terminal-container-price-reais"
-                      style={{ fontSize: fontPreco, color: t.priceTextColor }}
-                      initial={{ scale: 0.6, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ duration: 0.4, delay: 0.5, type: "spring", stiffness: 300 }}
-                    >
-                      {formatPrice(produto.preco ?? 0).reais}
-                    </motion.span>
-                    <span className="terminal-container-price-cents" style={{ fontSize: fontPreco * 0.45, color: t.priceTextColor }}>
-                      ,{formatPrice(produto.preco ?? 0).centavos}
-                    </span>
-                  </div>
-                  {produto.unidade_medida && (
-                    <p className="terminal-container-unit" style={{ color: t.priceTextMuted }}>{produto.unidade_medida}</p>
-                  )}
-                </motion.div>
-
-                {/* Promo strip */}
-                {hasDiscount && (
+                const suggestionsNode = allSugestoes.length > 0 ? (
                   <motion.div
-                    className="terminal-promo-strip"
-                    style={{
-                      background: `linear-gradient(90deg, ${t.accent}, ${t.tertiary})`,
-                      color: t.bannerTextColor,
-                      transition: "background 0.8s ease",
-                    }}
-                    initial={{ opacity: 0, scaleX: 0 }}
-                    animate={{ opacity: 1, scaleX: 1 }}
-                    transition={{ delay: 0.55, duration: 0.4 }}
+                    className="terminal-suggestions"
+                    initial={{ opacity: 0, y: 18 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.35, delay: 0.25 }}
+                    style={{ marginTop: isLandscape ? gap : 0 }}
                   >
-                    PROMOÇÃO
-                  </motion.div>
-                )}
-
-                {/* Suggestions inside the main container */}
-                {allSugestoes.length > 0 && (
-                  <motion.div className="terminal-suggestions" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.6 }}>
                     <motion.h2
                       className="terminal-suggestions-title"
                       style={{
@@ -994,30 +1207,33 @@ export default function TerminalPage() {
                         background: `linear-gradient(90deg, ${t.priceContainerBg}22, ${t.priceContainerBg}44, ${t.priceContainerBg}22)`,
                         borderColor: `${t.priceContainerBg}33`,
                       }}
-                      initial={{ opacity: 0, scale: 0.9 }}
+                      initial={{ opacity: 0, scale: 0.97 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.55, duration: 0.4, type: "spring" }}
+                      transition={{ duration: 0.35, type: "spring", stiffness: 240, damping: 20 }}
                     >
-                      {tipoSugestao === "mesma_marca" ? "🏷️ Mais dessa marca!" :
-                       tipoSugestao === "perfil" ? "⭐ Recomendados pra você!" :
-                       "✨ Combina perfeitamente!"}
+                      {suggestionTitle}
                     </motion.h2>
-                    <div className="terminal-suggestions-grid">
+                    <div
+                      className="terminal-suggestions-grid"
+                      style={{
+                        gridTemplateColumns: `repeat(${suggestionCols}, minmax(0, 1fr))`,
+                        gap: Math.max(10, Math.round(gap * 0.8)),
+                      }}
+                    >
                       {allSugestoes.map((s, i) => (
                         <motion.button
                           key={s.ean}
                           className="terminal-suggestion-card"
                           style={{
-                            background: "rgba(255,255,255,0.75)",
+                            background: "rgba(255,255,255,0.78)",
                             borderColor: `${t.priceContainerBg}30`,
-                            boxShadow: `0 4px 15px ${t.priceContainerBg}15`,
-                            transition: "background 0.8s ease, border-color 0.8s ease, box-shadow 0.3s ease",
+                            boxShadow: `0 4px 16px ${t.priceContainerBg}14`,
                           }}
-                          initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                          initial={{ opacity: 0, y: 14, scale: 0.96 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
-                          transition={{ duration: 0.35, delay: 0.7 + i * 0.1, type: "spring", stiffness: 200 }}
-                          whileHover={{ scale: 1.05, y: -4 }}
-                          whileTap={{ scale: 0.95 }}
+                          transition={{ duration: 0.28, delay: 0.05 + i * 0.06, type: "spring", stiffness: 220, damping: 22 }}
+                          whileHover={{ scale: 1.04, y: -3 }}
+                          whileTap={{ scale: 0.98 }}
                           onClick={() => { setEan(s.ean); consultar(s.ean); }}
                         >
                           {s.imagem_url_vtex ? (
@@ -1025,12 +1241,11 @@ export default function TerminalPage() {
                           ) : (
                             <div className="terminal-suggestion-noimg"><Barcode className="w-6 h-6 text-black/15" /></div>
                           )}
-                          <p className="terminal-suggestion-name" style={{ color: t.containerTextColor }}>{s.nome_curto || s.nome}</p>
+                          <p className="terminal-suggestion-name" style={{ color: t.containerTextColor }}>
+                            {normalizeProductName(s.nome)}
+                          </p>
                           {s.preco && (
-                            <p className="terminal-suggestion-price" style={{
-                              color: t.priceTextColor,
-                              background: t.priceContainerGradient,
-                            }}>
+                            <p className="terminal-suggestion-price" style={{ color: t.priceTextColor, background: t.priceContainerGradient }}>
                               R$ {s.preco.toFixed(2)}
                             </p>
                           )}
@@ -1038,8 +1253,177 @@ export default function TerminalPage() {
                       ))}
                     </div>
                   </motion.div>
-                )}
-              </motion.div>
+                ) : null;
+
+                const infoNode = (
+                  <motion.div
+                    initial={{ opacity: 0, y: 18 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.35, delay: 0.12 }}
+                    style={{
+                      width: "100%",
+                      borderRadius: containerRadius,
+                      background: t.containerGradient,
+                      boxShadow: "0 10px 40px rgba(0,0,0,0.10)",
+                      padding: Math.max(16, Math.round(gap * 1.1)),
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      className="terminal-desc-card"
+                      style={{
+                        textAlign: isLandscape ? "left" : "center",
+                        padding: Math.max(14, Math.round(gap * 0.95)),
+                      }}
+                    >
+                      <h1
+                        className="leading-tight"
+                        style={{
+                          fontSize: titleSize,
+                          color: t.textColor,
+                          letterSpacing: "-0.01em",
+                          fontWeight: 900,
+                        }}
+                      >
+                        {highlight}
+                      </h1>
+                      {rest && (
+                        <p className="terminal-desc-details" style={{ fontSize: restSize, color: t.textColor }}>
+                          {rest}
+                        </p>
+                      )}
+                      {produto.marca && (
+                        <p className="terminal-desc-brand" style={{ fontSize: brandSize }}>
+                          {produto.marca}
+                        </p>
+                      )}
+                    </div>
+
+                    <motion.div
+                      className="terminal-price-container"
+                      style={{
+                        background: t.priceContainerGradient,
+                        boxShadow: `0 10px 34px ${t.priceContainerBg}3d`,
+                        marginTop: Math.max(14, Math.round(gap * 0.9)),
+                        padding: `${Math.max(14, Math.round(gap * 0.8))}px ${Math.max(18, Math.round(gap * 1.2))}px`,
+                      }}
+                      initial={{ opacity: 0, y: 16, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.32, delay: 0.18, type: "spring", stiffness: 240, damping: 20 }}
+                    >
+                      {hasDiscount && (
+                        <p className="terminal-container-old-price" style={{ color: t.priceTextMuted }}>
+                          De R$ {produto.preco_lista!.toFixed(2)}
+                        </p>
+                      )}
+                      <div className="terminal-container-price" style={{ color: t.priceTextColor }}>
+                        <span className="terminal-container-price-symbol" style={{ fontSize: Math.round(priceReaisSize * 0.26), marginTop: Math.round(priceReaisSize * 0.12) }}>
+                          R$
+                        </span>
+                        <motion.span
+                          className="terminal-container-price-reais"
+                          style={{ fontSize: priceReaisSize, color: t.priceTextColor }}
+                          initial={{ scale: 0.96, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{ duration: 0.3, delay: 0.22, type: "spring", stiffness: 260, damping: 20 }}
+                        >
+                          {formatPrice(produto.preco ?? 0).reais}
+                        </motion.span>
+                        <span className="terminal-container-price-cents" style={{ fontSize: centsSize, color: t.priceTextColor }}>
+                          ,{formatPrice(produto.preco ?? 0).centavos}
+                        </span>
+                      </div>
+                      {produto.unidade_medida && (
+                        <p className="terminal-container-unit" style={{ color: t.priceTextMuted }}>
+                          {produto.unidade_medida}
+                        </p>
+                      )}
+                    </motion.div>
+                  </motion.div>
+                );
+
+                const imageNode = (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.98 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.35, delay: 0.16 }}
+                    style={{
+                      width: imagePanelWidth,
+                      marginRight: isLandscape ? -30 : 0,
+                      background: "#ffffff",
+                      borderRadius: containerRadius,
+                      boxShadow: "0 18px 60px rgba(0,0,0,0.12)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: Math.max(14, Math.round(gap)),
+                      minHeight: isLandscape ? Math.round(vh - footerSpace - padding * 2) : Math.round(vh * 0.34),
+                    }}
+                  >
+                    {produto.imagem_url_vtex ? (
+                      <img
+                        src={produto.imagem_url_vtex}
+                        alt={produto.nome}
+                        style={{
+                          width: "100%",
+                          maxHeight: imageMaxHeight,
+                          objectFit: "contain",
+                          filter: "drop-shadow(0 18px 36px rgba(0,0,0,0.16))",
+                        }}
+                      />
+                    ) : (
+                      <div className="terminal-no-image-large" style={{ width: "100%", height: imageMaxHeight, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Barcode className="w-20 h-20 text-black/15" />
+                      </div>
+                    )}
+                  </motion.div>
+                );
+
+                if (isLandscape) {
+                  return (
+                    <div
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        paddingLeft: padding,
+                        paddingRight: padding,
+                        paddingTop: padding,
+                        paddingBottom: footerSpace + padding,
+                        display: "flex",
+                        gap,
+                        alignItems: "center",
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                        {infoNode}
+                        {suggestionsNode}
+                      </div>
+                      {imageNode}
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      paddingLeft: padding,
+                      paddingRight: padding,
+                      paddingTop: padding,
+                      paddingBottom: footerSpace + padding,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap,
+                      alignItems: "center",
+                    }}
+                  >
+                    {imageNode}
+                    {infoNode}
+                    {suggestionsNode}
+                  </div>
+                );
+              })()}
             </motion.div>
         )}
       </AnimatePresence>
@@ -1062,7 +1446,7 @@ export default function TerminalPage() {
                         onEnded={() => { if (idx === currentMediaIndex) setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length); }}
                         ref={(el) => {
                           if (!el) return;
-                          if (idx === currentMediaIndex) { el.play().catch(() => { }); } else { el.pause(); el.currentTime = 0; }
+                          if (idx === currentMediaIndex) { el.play().catch(() => undefined); } else { el.pause(); el.currentTime = 0; }
                         }}
                       />
                     )}
@@ -1074,13 +1458,15 @@ export default function TerminalPage() {
                 <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}>
                   <Barcode className="w-24 h-24 text-black/10 mb-6" />
                 </motion.div>
-                <p className="text-black/30 text-2xl font-bold">Consulte um produto</p>
-                <p className="text-black/20 text-lg mt-2">Escaneie o código de barras</p>
               </motion.div>
             )}
           </>
         )}
       </AnimatePresence>
+
+      <div className="terminal-footer-hint" style={{ color: t.textColor }}>
+        Consulte o preço aqui
+      </div>
     </div>
   );
 }

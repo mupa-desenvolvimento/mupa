@@ -10,6 +10,12 @@ const BATCH_SIZE = 50;
 const DELAY_MS = 800;
 const MAX_EXECUTION_MS = 120_000; // 2 min safety margin
 
+type SyncLogRow = {
+  id: string;
+  current_offset?: number | null;
+  total_produtos?: number | null;
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -30,7 +36,7 @@ Deno.serve(async (req) => {
       .limit(1)
       .single();
 
-    let syncLog: any;
+    let syncLog: SyncLogRow;
     let offset = 0;
     let totalProcessed = 0;
 
@@ -72,8 +78,8 @@ Deno.serve(async (req) => {
               "Authorization": `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`,
               "Content-Type": "application/json",
             },
-          }).catch(() => {});
-        } catch {}
+          }).catch(() => undefined);
+        } catch (e) { console.error(e); }
 
         return new Response(
           JSON.stringify({ success: true, status: "partial", total: totalProcessed, offset }),
@@ -109,7 +115,7 @@ Deno.serve(async (req) => {
       emptyBatches = 0;
 
       // Batch collect records
-      const records: any[] = [];
+      const records: Array<Record<string, unknown>> = [];
       for (const produto of produtos) {
         const items = produto.items ?? [];
         for (const item of items) {
@@ -123,7 +129,12 @@ Deno.serve(async (req) => {
           const offer = sellers[0]?.commertialOffer;
           const preco = offer?.Price ?? null;
           const precoLista = offer?.ListPrice ?? null;
-          const disponivel = offer?.IsAvailable ?? (offer?.AvailableQuantity > 0) ?? true;
+          const disponivel =
+            typeof offer?.IsAvailable === "boolean"
+              ? offer.IsAvailable
+              : typeof offer?.AvailableQuantity === "number"
+                ? offer.AvailableQuantity > 0
+                : true;
           const images = item.images ?? [];
           const imgUrl = images[0]?.imageUrl ?? null;
 

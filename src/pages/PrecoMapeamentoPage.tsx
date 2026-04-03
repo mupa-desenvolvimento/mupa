@@ -245,6 +245,58 @@ const DEFAULT_MAPEAMENTO: Record<string, string> = {
   media_venda: "media_venda",
 };
 
+type PrecoTesteItem = {
+  tipo: string;
+  label: string;
+  valor: number;
+  destaque?: boolean;
+};
+
+type PrecoTesteProduto = {
+  nome: string;
+  ean: string;
+  precos: PrecoTesteItem[];
+};
+
+type PrecoTesteSuccess = {
+  success: true;
+  produto: PrecoTesteProduto;
+};
+
+type PrecoTesteError = {
+  error: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isPrecoTesteItem(value: unknown): value is PrecoTesteItem {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.tipo === "string" &&
+    typeof value.label === "string" &&
+    typeof value.valor === "number" &&
+    (typeof value.destaque === "boolean" || typeof value.destaque === "undefined")
+  );
+}
+
+function isPrecoTesteSuccess(value: unknown): value is PrecoTesteSuccess {
+  if (!isRecord(value)) return false;
+  if (value.success !== true) return false;
+  const produto = value.produto;
+  if (!isRecord(produto)) return false;
+  if (typeof produto.nome !== "string") return false;
+  if (typeof produto.ean !== "string") return false;
+  if (!Array.isArray(produto.precos)) return false;
+  return produto.precos.every(isPrecoTesteItem);
+}
+
+function isPrecoTesteError(value: unknown): value is PrecoTesteError {
+  if (!isRecord(value)) return false;
+  return typeof value.error === "string" && value.error.length > 0;
+}
+
 export default function PrecoMapeamentoPage() {
   const queryClient = useQueryClient();
 
@@ -787,16 +839,16 @@ export default function PrecoMapeamentoPage() {
                 <CardContent>
                   {testResult ? (
                     <div className="space-y-4">
-                      {(testResult as any)?.success && (testResult as any)?.produto?.precos && (
+                      {isPrecoTesteSuccess(testResult) && (
                         <div className="space-y-2">
                           <h4 className="font-medium flex items-center gap-2">
                             <CheckCircle2 className="h-4 w-4 text-primary" />
-                            {(testResult as any).produto.nome}
+                            {testResult.produto.nome}
                           </h4>
-                          <p className="text-xs text-muted-foreground">EAN: {(testResult as any).produto.ean}</p>
+                          <p className="text-xs text-muted-foreground">EAN: {testResult.produto.ean}</p>
 
                           <div className="space-y-1 mt-3">
-                            {(testResult as any).produto.precos.map((p: any, i: number) => (
+                            {testResult.produto.precos.map((p, i) => (
                               <div
                                 key={i}
                                 className={`flex items-center justify-between px-3 py-2 rounded-md ${
@@ -818,10 +870,10 @@ export default function PrecoMapeamentoPage() {
                         </div>
                       )}
 
-                      {(testResult as any)?.error && (
+                      {isPrecoTesteError(testResult) && (
                         <div className="flex items-start gap-2 text-destructive">
                           <AlertTriangle className="h-4 w-4 mt-0.5" />
-                          <span className="text-sm">{(testResult as any).error}</span>
+                          <span className="text-sm">{testResult.error}</span>
                         </div>
                       )}
 

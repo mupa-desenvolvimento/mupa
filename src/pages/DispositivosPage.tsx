@@ -9,11 +9,15 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
-  Building2, Monitor, Users, Key, Plus, Trash2, Copy, QrCode, Globe, Settings, RefreshCw,
+  Building2, Monitor, Plus, Trash2, Copy, QrCode, Globe, Settings, PanelRight, Barcode,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
+} from "@/components/ui/sheet";
+import { Label } from "@/components/ui/label";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -23,6 +27,7 @@ interface Empresa {
   id: string;
   nome: string;
   slug: string;
+  codigo_vinculo: string;
   logo_url: string | null;
   ativo: boolean;
   criado_em: string;
@@ -34,6 +39,7 @@ interface Dispositivo {
   nome: string;
   codigo_ativacao: string;
   ativo: boolean;
+  input_remoto_ativo?: boolean;
   ativado_em: string | null;
   ultimo_acesso: string | null;
   criado_em: string;
@@ -58,6 +64,44 @@ function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
+async function sendEanBroadcast(deviceId: string, raw: string): Promise<void> {
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) throw new Error("Informe um EAN com números");
+  const channel = supabase.channel(`terminal-ean-${deviceId}`);
+  await new Promise<void>((resolve, reject) => {
+    let finished = false;
+    let sendStarted = false;
+    channel.subscribe((status, err) => {
+      if (status === "SUBSCRIBED") {
+        if (sendStarted) return;
+        sendStarted = true;
+        channel
+          .send({ type: "broadcast", event: "ean", payload: { ean: digits } })
+          .then((res) => {
+            if (finished) return;
+            finished = true;
+            void supabase.removeChannel(channel);
+            if (res === "ok") resolve();
+            else reject(new Error(res === "timed out" ? "Tempo esgotado ao enviar" : "Falha ao enviar EAN"));
+          })
+          .catch((e) => {
+            if (!finished) {
+              finished = true;
+              void supabase.removeChannel(channel);
+              reject(e instanceof Error ? e : new Error(String(e)));
+            }
+          });
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        if (!finished && !sendStarted) {
+          finished = true;
+          void supabase.removeChannel(channel);
+          reject(err ?? new Error("Canal Realtime indisponível"));
+        }
+      }
+    });
+  });
+}
+
 // ─── Main Page ───
 export default function DispositivosPage() {
   const qc = useQueryClient();
@@ -67,6 +111,9 @@ export default function DispositivosPage() {
   const [selectedEmpresa, setSelectedEmpresa] = useState<string | null>(null);
   const [showAddEmpresa, setShowAddEmpresa] = useState(false);
   const [showAddDisp, setShowAddDisp] = useState(false);
+  const [detailDevice, setDetailDevice] = useState<Dispositivo | null>(null);
+  const [remoteEan, setRemoteEan] = useState("");
+  const [sendingEan, setSendingEan] = useState(false);
 
   // API config state
   const [apiUrl, setApiUrl] = useState("");
@@ -175,6 +222,19 @@ export default function DispositivosPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["dispositivos"] }),
   });
 
+  const toggleInputRemoto = useMutation({
+    mutationFn: async ({ id, input_remoto_ativo }: { id: string; input_remoto_ativo: boolean }) => {
+      const { error } = await supabase.from("dispositivos").update({ input_remoto_ativo }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_, v) => {
+      qc.invalidateQueries({ queryKey: ["dispositivos"] });
+      setDetailDevice((d) => (d && d.id === v.id ? { ...d, input_remoto_ativo: v.input_remoto_ativo } : d));
+      toast.success(v.input_remoto_ativo ? "Controlo remoto ativado" : "Controlo remoto desativado");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const saveApiConfig = useMutation({
     mutationFn: async ({ empresa_id, api_url, api_token, tipo_api }: { empresa_id: string; api_url: string; api_token: string; tipo_api: string }) => {
       const existing = apiConfigs.find((c) => c.empresa_id === empresa_id);
@@ -257,6 +317,7 @@ export default function DispositivosPage() {
                 <TableRow>
                   <TableHead>Nome</TableHead>
                   <TableHead>Slug</TableHead>
+                  <TableHead>Código Empresa</TableHead>
                   <TableHead>Dispositivos</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
@@ -269,6 +330,32 @@ export default function DispositivosPage() {
                     <TableRow key={emp.id}>
                       <TableCell className="font-medium">{emp.nome}</TableCell>
                       <TableCell className="text-muted-foreground text-xs font-mono">{emp.slug}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs font-mono bg-muted px-2 py-1 rounded">
+                            {emp.codigo_vinculo}
+                          </code>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            onClick={() => copyToClipboard(emp.codigo_vinculo)}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            onClick={() => {
+                              const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(emp.codigo_vinculo)}`;
+                              window.open(qrUrl, "_blank");
+                            }}
+                          >
+                            <QrCode className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </TableCell>
                       <TableCell>
                         <Badge variant="secondary">{dispCount}</Badge>
                       </TableCell>
@@ -297,7 +384,7 @@ export default function DispositivosPage() {
                 })}
                 {empresas.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                       Nenhuma empresa cadastrada
                     </TableCell>
                   </TableRow>
@@ -409,18 +496,28 @@ export default function DispositivosPage() {
                         : "Nunca"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="text-destructive"
-                        onClick={() => {
-                          if (confirm("Remover este dispositivo?")) {
-                            deleteDispositivo.mutate(disp.id);
-                          }
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Controlo remoto / detalhes"
+                          onClick={() => setDetailDevice(disp)}
+                        >
+                          <PanelRight className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-destructive"
+                          onClick={() => {
+                            if (confirm("Remover este dispositivo?")) {
+                              deleteDispositivo.mutate(disp.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -506,6 +603,115 @@ export default function DispositivosPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <Sheet open={detailDevice !== null} onOpenChange={(o) => { if (!o) setDetailDevice(null); }}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+          {detailDevice && (
+            <>
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-2">
+                  <Monitor className="h-5 w-5" />
+                  {detailDevice.nome}
+                </SheetTitle>
+                <SheetDescription>
+                  Controlo remoto do terminal: ative o envio de EAN a partir deste painel (requer Realtime no projeto Supabase).
+                </SheetDescription>
+              </SheetHeader>
+              <div className="mt-6 space-y-6">
+                <div className="rounded-lg border bg-muted/40 p-3 text-sm space-y-1">
+                  <div><span className="text-muted-foreground">Empresa:</span>{" "}
+                    <span className="font-medium">{getEmpresaNome(detailDevice.empresa_id)}</span></div>
+                  <div className="font-mono text-xs">
+                    <span className="text-muted-foreground">ID:</span> {detailDevice.id}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Código ativação:</span>{" "}
+                    <code className="bg-muted px-1 rounded">{detailDevice.codigo_ativacao}</code>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Último acesso:</span>{" "}
+                    {detailDevice.ultimo_acesso
+                      ? new Date(detailDevice.ultimo_acesso).toLocaleString("pt-BR")
+                      : "—"}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="input-remoto" className="text-base">Input remoto (EAN)</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Com ativado, o terminal aceita EAN enviado abaixo. Com desativado, mensagens são ignoradas.
+                    </p>
+                  </div>
+                  <Switch
+                    id="input-remoto"
+                    checked={!!detailDevice.input_remoto_ativo}
+                    disabled={toggleInputRemoto.isPending}
+                    onCheckedChange={(v) =>
+                      toggleInputRemoto.mutate({ id: detailDevice.id, input_remoto_ativo: v })
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ean-remoto">Enviar EAN ao terminal</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="ean-remoto"
+                      placeholder="7891234567890"
+                      inputMode="numeric"
+                      value={remoteEan}
+                      onChange={(e) => setRemoteEan(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !!detailDevice.input_remoto_ativo) {
+                          e.preventDefault();
+                          void (async () => {
+                            setSendingEan(true);
+                            try {
+                              await sendEanBroadcast(detailDevice.id, remoteEan);
+                              toast.success("EAN enviado ao terminal");
+                              setRemoteEan("");
+                            } catch (err) {
+                              toast.error(err instanceof Error ? err.message : "Erro ao enviar");
+                            } finally {
+                              setSendingEan(false);
+                            }
+                          })();
+                        }
+                      }}
+                      disabled={!detailDevice.input_remoto_ativo || sendingEan}
+                    />
+                    <Button
+                      type="button"
+                      disabled={!detailDevice.input_remoto_ativo || sendingEan || !remoteEan.trim()}
+                      onClick={async () => {
+                        setSendingEan(true);
+                        try {
+                          await sendEanBroadcast(detailDevice.id, remoteEan);
+                          toast.success("EAN enviado ao terminal");
+                          setRemoteEan("");
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Erro ao enviar");
+                        } finally {
+                          setSendingEan(false);
+                        }
+                      }}
+                    >
+                      <Barcode className="h-4 w-4 mr-2" />
+                      Enviar
+                    </Button>
+                  </div>
+                  {!detailDevice.input_remoto_ativo && (
+                    <p className="text-xs text-amber-600 dark:text-amber-500">
+                      Ative &quot;Input remoto&quot; acima para permitir o envio.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
