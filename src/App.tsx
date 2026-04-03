@@ -35,6 +35,7 @@ const App = () => (
               <Route path="/docs" element={<DocsPage />} />
               <Route path="/terminal-media" element={<TerminalMediaPage />} />
               <Route path="/dispositivos" element={<DispositivosPage />} />
+              <Route path="/preco-mapeamento" element={<PrecoMapeamentoPage />} />
             </Route>
             <Route path="/terminal" element={<TerminalPage />} />
             <Route path="*" element={<NotFound />} />
