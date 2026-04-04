@@ -82,7 +82,7 @@ function extractFallbackTerms(produto: Produto) {
 }
 
 async function getCachedCategories(
-  supabase: SupabaseClient, ean: string, tipo: string, chavePerfil: string | null
+  supabase: ReturnType<typeof createClient>, ean: string, tipo: string, chavePerfil: string | null
 ): Promise<string[] | null> {
   const query = supabase
     .from("sugestoes_cache")
