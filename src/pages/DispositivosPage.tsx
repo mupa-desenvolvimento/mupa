@@ -360,7 +360,7 @@ export default function DispositivosPage() {
     try {
       const { error } = await supabase
         .from("dispositivos")
-        .update({ config_override: next as Json })
+        .update({ config_override: next } as Record<string, unknown>)
         .eq("id", detailDevice.id);
       if (error) throw error;
       setDeviceOverrides(next);
