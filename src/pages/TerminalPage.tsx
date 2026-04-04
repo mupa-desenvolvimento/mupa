@@ -15,6 +15,7 @@ interface Produto {
   preco_lista?: number;
   disponivel?: boolean;
   imagem_url_vtex?: string;
+  imagem_url_sem_fundo?: string;
   unidade_medida?: string;
   multiplicador?: number;
 }
@@ -263,6 +264,16 @@ function parseNumber(value: unknown): number | null {
     if (Number.isFinite(n)) return n;
   }
   return null;
+}
+
+// PERF: background scheduling helper (never blocks consult flow)
+function runInBackground(task: () => void) {
+  const w = window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number };
+  if (typeof w.requestIdleCallback === "function") {
+    w.requestIdleCallback(task, { timeout: 2000 });
+    return;
+  }
+  window.setTimeout(task, 0);
 }
 
 function hslToRgb({ h, s, l }: HSL): RGB {
@@ -840,6 +851,19 @@ export default function TerminalPage() {
   const scanLastKeyTsRef = useRef(0);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const terminalEanChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const [scanFocused, setScanFocused] = useState(false);
+  const scanFocusedRef = useRef(false);
+
+  const focusScanInput = useCallback(() => {
+    const el = scanInputRef.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    try {
+      el.setSelectionRange(0, el.value.length);
+    } catch {
+      return;
+    }
+  }, []);
 
   const activeTheme = useMemo<ProductTheme>(() => {
     if (corAutoEnabled && theme) return theme;
@@ -906,6 +930,25 @@ export default function TerminalPage() {
       vv?.removeEventListener("scroll", update);
     };
   }, []);
+
+  useEffect(() => {
+    if (!deviceActivated || !precoConfigReady) return;
+    focusScanInput();
+  }, [deviceActivated, precoConfigReady, focusScanInput]);
+
+  useEffect(() => {
+    if (!deviceActivated || !precoConfigReady) return;
+    const onWinFocus = () => focusScanInput();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") focusScanInput();
+    };
+    window.addEventListener("focus", onWinFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onWinFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [deviceActivated, precoConfigReady, focusScanInput]);
 
   useEffect(() => {
     const now = Date.now();
@@ -1211,6 +1254,8 @@ export default function TerminalPage() {
 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const returnTimerRef = useRef<number | null>(null);
+  const productImageObjectUrlRef = useRef<string | null>(null);
+  const noBgInFlightRef = useRef<Set<string>>(new Set());
 
   const clearConsult = useCallback(() => {
     if (returnTimerRef.current) {
@@ -1225,6 +1270,10 @@ export default function TerminalPage() {
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
       currentAudioRef.current = null;
+    }
+    if (productImageObjectUrlRef.current) {
+      URL.revokeObjectURL(productImageObjectUrlRef.current);
+      productImageObjectUrlRef.current = null;
     }
   }, []);
 
@@ -1293,6 +1342,172 @@ export default function TerminalPage() {
     return null;
   }, []);
 
+  // PERF: network call isolated from cache/UI. Used only for background refresh + cache misses.
+  const fetchPrecoFromApi = useCallback(async (codigoEmpresa: string, numeroLoja: string, eanDigits: string): Promise<Produto> => {
+    const ean = eanDigits.replace(/\D/g, "").trim();
+    if (!ean) throw new Error("EAN inválido.");
+    if (!navigator.onLine) throw new Error("Sem internet para consultar.");
+
+    const res = await fetch(`${BASE_URL}/api-consulta-preco`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codigo_empresa: codigoEmpresa, numero_loja: numeroLoja, ean }),
+    });
+    const payload = (await res.json().catch(() => null)) as { produto?: unknown; error?: string } | null;
+    if (!res.ok) throw new Error(payload?.error || `Erro ao consultar (${res.status})`);
+    const prod = asRecord(payload?.produto);
+    if (!prod) throw new Error("Resposta inválida ao consultar preço.");
+
+    return {
+      ean: String(prod.ean ?? ean).replace(/\D/g, "") || ean,
+      nome: String(prod.nome ?? "Produto"),
+      preco: parseNumber(prod.preco) ?? undefined,
+      preco_lista: parseNumber(prod.preco_lista) ?? undefined,
+      imagem_url_vtex: typeof prod.imagem_url_vtex === "string" ? prod.imagem_url_vtex : undefined,
+      disponivel: true,
+    };
+  }, []);
+
+  // PERF: cache read is used to show instant values (cache-first UI).
+  const getCachedPrecoFromStorage = useCallback(async (codigoEmpresa: string, numeroLoja: string, eanDigits: string) => {
+    const ean = eanDigits.replace(/\D/g, "").trim();
+    if (!ean) return null;
+    const ckey = cacheKeyForPreco(codigoEmpresa, numeroLoja, ean);
+    const cached = await cacheGetJson<PrecoConsultaCache>(ckey);
+    if (cached && cached.v === 1 && cached.produto?.ean) return cached.produto;
+    return null;
+  }, []);
+
+  // PERF: background remove-bg: simple, cheap(ish), only runs after UI is already updated.
+  const _remove_bg_simple = useCallback(async (input: Blob) => {
+    const bitmap = await createImageBitmap(input);
+    const maxW = 640;
+    const scale = bitmap.width > maxW ? maxW / bitmap.width : 1;
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx2d = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx2d) return input;
+    ctx2d.drawImage(bitmap, 0, 0, w, h);
+    const img = ctx2d.getImageData(0, 0, w, h);
+    const d = img.data;
+
+    const sample = (x: number, y: number) => {
+      const i = (y * w + x) * 4;
+      return { r: d[i], g: d[i + 1], b: d[i + 2] };
+    };
+    const corners = [sample(0, 0), sample(w - 1, 0), sample(0, h - 1), sample(w - 1, h - 1)];
+    const bg = {
+      r: Math.round(corners.reduce((a, c) => a + c.r, 0) / corners.length),
+      g: Math.round(corners.reduce((a, c) => a + c.g, 0) / corners.length),
+      b: Math.round(corners.reduce((a, c) => a + c.b, 0) / corners.length),
+    };
+
+    const tol = 42;
+    for (let i = 0; i < d.length; i += 4) {
+      const dr = d[i] - bg.r;
+      const dg = d[i + 1] - bg.g;
+      const db = d[i + 2] - bg.b;
+      const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+      if (dist < tol) d[i + 3] = 0;
+    }
+
+    ctx2d.putImageData(img, 0, 0);
+    const out = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), "image/png"));
+    return out ?? input;
+  }, []);
+
+  // PERF: background task; caches PNG with transparency and updates current product without blocking consult.
+  const processImageBackground = useCallback((p: Produto, codigoEmpresa: string, numeroLoja: string) => {
+    const ean = p.ean.replace(/\D/g, "").trim();
+    const imgUrl = p.imagem_url_vtex;
+    if (!ean || !imgUrl) return;
+    if (p.imagem_url_sem_fundo) return;
+    const inFlightKey = `${codigoEmpresa}:${numeroLoja}:${ean}`;
+    if (noBgInFlightRef.current.has(inFlightKey)) return;
+    noBgInFlightRef.current.add(inFlightKey);
+
+    runInBackground(() => {
+      void (async () => {
+        try {
+          if (!("caches" in window)) return;
+          const key = `mupa:nobg:v1:${codigoEmpresa}:${numeroLoja}:${ean}`;
+          const cache = await caches.open("mupa-nobg-v1");
+          const req = new Request(`https://mupa.cache/${encodeURIComponent(key)}`);
+          const cached = await cache.match(req);
+          if (cached) {
+            const blob = await cached.blob();
+            const objUrl = URL.createObjectURL(blob);
+            if (productImageObjectUrlRef.current) URL.revokeObjectURL(productImageObjectUrlRef.current);
+            productImageObjectUrlRef.current = objUrl;
+            setProduto((prev) => (prev && prev.ean === ean ? { ...prev, imagem_url_sem_fundo: objUrl } : prev));
+            return;
+          }
+
+          const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+          const storagePath = `nobg/${codigoEmpresa}/${numeroLoja}/${ean}.png`;
+          const storedUrl = supabaseUrl ? `${supabaseUrl}/storage/v1/object/public/produto-nobg/${storagePath}` : "";
+          if (storedUrl) {
+            const storedRes = await fetch(storedUrl, { cache: "force-cache" }).catch(() => null);
+            if (storedRes && storedRes.ok) {
+              const storedBlob = await storedRes.blob();
+              await cache.put(req, new Response(storedBlob, { headers: { "Content-Type": "image/png" } }));
+              setProduto((prev) => (prev && prev.ean === ean ? { ...prev, imagem_url_sem_fundo: storedUrl } : prev));
+              return;
+            }
+          }
+
+          const res = await fetch(imgUrl, { cache: "force-cache" });
+          if (!res.ok) return;
+          const rawBlob = await res.blob();
+          const outBlob = await _remove_bg_simple(rawBlob);
+          await cache.put(req, new Response(outBlob, { headers: { "Content-Type": "image/png" } }));
+          const objUrl = URL.createObjectURL(outBlob);
+          if (productImageObjectUrlRef.current) URL.revokeObjectURL(productImageObjectUrlRef.current);
+          productImageObjectUrlRef.current = objUrl;
+          setProduto((prev) => (prev && prev.ean === ean ? { ...prev, imagem_url_sem_fundo: objUrl } : prev));
+
+          const toBase64 = async (blob: Blob) => {
+            const buf = new Uint8Array(await blob.arrayBuffer());
+            let binary = "";
+            const chunk = 0x8000;
+            for (let i = 0; i < buf.length; i += chunk) {
+              binary += String.fromCharCode(...buf.subarray(i, i + chunk));
+            }
+            return btoa(binary);
+          };
+
+          const png_base64 = await toBase64(outBlob);
+          const uploadRes = await fetch(`${BASE_URL}/api-produto-nobg`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ codigo_empresa: codigoEmpresa, numero_loja: numeroLoja, ean, png_base64 }),
+          }).catch(() => null);
+          if (uploadRes && uploadRes.ok) {
+            const data = (await uploadRes.json().catch(() => null)) as { url?: string } | null;
+            const url = typeof data?.url === "string" ? data.url : storedUrl;
+            if (url) {
+              setProduto((prev) => {
+                if (!prev || prev.ean !== ean) return prev;
+                if (productImageObjectUrlRef.current && prev.imagem_url_sem_fundo === productImageObjectUrlRef.current) {
+                  URL.revokeObjectURL(productImageObjectUrlRef.current);
+                  productImageObjectUrlRef.current = null;
+                }
+                return { ...prev, imagem_url_sem_fundo: url };
+              });
+            }
+          }
+        } catch {
+          return;
+        } finally {
+          noBgInFlightRef.current.delete(inFlightKey);
+        }
+      })();
+    });
+  }, [_remove_bg_simple]);
+
   const consultarPreco = useCallback(async (eanDigits: string): Promise<Produto> => {
     const ctx = await resolveEmpresaContext().catch(() => null);
     if (!ctx) throw new Error("Configuração incompleta. Revise código da empresa e número da loja.");
@@ -1302,55 +1517,44 @@ export default function TerminalPage() {
     const ean = eanDigits.replace(/\D/g, "");
     if (!ean) throw new Error("EAN inválido.");
 
-    const fetchFromApi = async (): Promise<Produto> => {
-      if (!navigator.onLine) throw new Error("Sem internet para consultar.");
-      const res = await fetch(`${BASE_URL}/api-consulta-preco`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ codigo_empresa: codigoEmpresa, numero_loja: loja, ean }),
-      });
-      const payload = (await res.json().catch(() => null)) as { produto?: unknown; error?: string } | null;
-      if (!res.ok) throw new Error(payload?.error || `Erro ao consultar (${res.status})`);
-      const prod = asRecord(payload?.produto);
-      if (!prod) throw new Error("Resposta inválida ao consultar preço.");
-
-      const preco = parseNumber(prod.preco);
-      const precoLista = parseNumber(prod.preco_lista);
-
-      return {
-        ean: String(prod.ean ?? ean).replace(/\D/g, "") || ean,
-        nome: String(prod.nome ?? "Produto"),
-        preco: preco ?? undefined,
-        preco_lista: precoLista ?? undefined,
-        imagem_url_vtex: typeof prod.imagem_url_vtex === "string" ? prod.imagem_url_vtex : undefined,
-        disponivel: true,
-      };
-    };
-
     const ckey = cacheKeyForPreco(codigoEmpresa, loja, ean);
     const cached = await cacheGetJson<PrecoConsultaCache>(ckey);
     if (cached && cached.v === 1 && cached.produto?.ean) {
-      if (navigator.onLine) {
-        void (async () => {
-          try {
-            const fresh = await fetchFromApi();
-            await cacheSetJson(ckey, { v: 1, codigo_empresa: codigoEmpresa, numero_loja: loja, ean, updated_at: new Date().toISOString(), produto: fresh });
-          } catch {
-            return;
-          }
-        })();
-      }
       return cached.produto;
     }
 
     if (!navigator.onLine) throw new Error("Sem internet e sem cache para este produto.");
-    const produto = await fetchFromApi();
+    const produto = await fetchPrecoFromApi(codigoEmpresa, loja, ean);
 
     await cacheSetJson(ckey, { v: 1, codigo_empresa: codigoEmpresa, numero_loja: loja, ean, updated_at: new Date().toISOString(), produto });
     return produto;
-  }, [resolveEmpresaContext]);
+  }, [fetchPrecoFromApi, resolveEmpresaContext]);
 
-  const consultar = async (code?: string) => {
+  // PERF: cache-first UI + background sync. Updates state/cache if price changes.
+  const updateProductInBackground = useCallback(async (eanDigits: string, baseline: Produto, codigoEmpresa: string, numeroLoja: string) => {
+    const ean = eanDigits.replace(/\D/g, "").trim();
+    if (!ean || !navigator.onLine) return;
+
+    runInBackground(() => {
+      void (async () => {
+        try {
+          const latest = await fetchPrecoFromApi(codigoEmpresa, numeroLoja, ean);
+          const changed = (baseline.preco ?? null) !== (latest.preco ?? null) || (baseline.preco_lista ?? null) !== (latest.preco_lista ?? null);
+          if (!changed) return;
+
+          produtosByEanRef.current[ean] = latest;
+          const ckey = cacheKeyForPreco(codigoEmpresa, numeroLoja, ean);
+          await cacheSetJson(ckey, { v: 1, codigo_empresa: codigoEmpresa, numero_loja: numeroLoja, ean, updated_at: new Date().toISOString(), produto: latest });
+          setProduto((p) => (p && p.ean === ean ? { ...p, ...latest } : p));
+          processImageBackground(latest, codigoEmpresa, numeroLoja);
+        } catch {
+          return;
+        }
+      })();
+    });
+  }, [fetchPrecoFromApi, processImageBackground]);
+
+  const consultar = useCallback(async (code?: string) => {
     const searchEan = (code || ean).replace(/\D/g, "").trim();
     if (!searchEan) return;
     setEan("");
@@ -1363,9 +1567,18 @@ export default function TerminalPage() {
     }
 
     try {
-      const cached = produtosByEanRef.current[searchEan];
-      if (cached) {
-        setProduto(cached);
+      const ctx = await resolveEmpresaContext().catch(() => null);
+      if (!ctx) throw new Error("Configuração incompleta. Revise código da empresa e número da loja.");
+
+      const codigoEmpresa = ctx.codigo_empresa;
+      const numeroLoja = ctx.numero_loja;
+
+      const cachedMem = produtosByEanRef.current[searchEan] ?? null;
+      if (cachedMem) {
+        // PERF: show cache immediately; API sync + remove-bg run in background
+        setProduto(cachedMem);
+        processImageBackground(cachedMem, codigoEmpresa, numeroLoja);
+        void updateProductInBackground(searchEan, cachedMem, codigoEmpresa, numeroLoja);
         terminalEanChannelRef.current
           ?.send({
             type: "broadcast",
@@ -1374,23 +1587,66 @@ export default function TerminalPage() {
           })
           .catch(() => undefined);
 
-        if (ttsEnabled && cached.preco) {
-          const audio = await speakPrice(cached.preco, cached.preco_lista, tipoSugestao);
+        if (ttsEnabled && cachedMem.preco) {
+          const audio = await speakPrice(cachedMem.preco, cachedMem.preco_lista, tipoSugestao);
           armReturnToIdle(audio, 8000);
         } else {
           armReturnToIdle(null, 8000);
         }
 
-        if (corAutoEnabled && cached.imagem_url_vtex) {
-          generateThemeFromImage(cached.imagem_url_vtex).then(t => setTheme(t));
+        if (corAutoEnabled && cachedMem.imagem_url_vtex) {
+          generateThemeFromImage(cachedMem.imagem_url_vtex).then(t => setTheme(t));
         }
 
         setLoading(false);
         return;
       }
-      const prod = await consultarPreco(searchEan);
+
+      const cachedStorage = await getCachedPrecoFromStorage(codigoEmpresa, numeroLoja, searchEan);
+      if (cachedStorage) {
+        // PERF: show cache immediately; API sync + remove-bg run in background
+        produtosByEanRef.current[searchEan] = cachedStorage;
+        setProduto(cachedStorage);
+        processImageBackground(cachedStorage, codigoEmpresa, numeroLoja);
+        void updateProductInBackground(searchEan, cachedStorage, codigoEmpresa, numeroLoja);
+
+        terminalEanChannelRef.current
+          ?.send({
+            type: "broadcast",
+            event: "consulted",
+            payload: { ean: searchEan, ts: Date.now(), ok: true, cache: true },
+          })
+          .catch(() => undefined);
+
+        if (ttsEnabled && cachedStorage.preco) {
+          const audio = await speakPrice(cachedStorage.preco, cachedStorage.preco_lista, tipoSugestao);
+          armReturnToIdle(audio, 8000);
+        } else {
+          armReturnToIdle(null, 8000);
+        }
+
+        if (corAutoEnabled && cachedStorage.imagem_url_vtex) {
+          generateThemeFromImage(cachedStorage.imagem_url_vtex).then(t => setTheme(t));
+        }
+
+        setLoading(false);
+        return;
+      }
+
+      if (!navigator.onLine) throw new Error(`Produto não encontrado no cache (${searchEan})`);
+
+      const prod = await fetchPrecoFromApi(codigoEmpresa, numeroLoja, searchEan);
+      await cacheSetJson(cacheKeyForPreco(codigoEmpresa, numeroLoja, searchEan), {
+        v: 1,
+        codigo_empresa: codigoEmpresa,
+        numero_loja: numeroLoja,
+        ean: searchEan,
+        updated_at: new Date().toISOString(),
+        produto: prod,
+      });
       produtosByEanRef.current[searchEan] = prod;
       setProduto(prod);
+      processImageBackground(prod, codigoEmpresa, numeroLoja);
       terminalEanChannelRef.current
         ?.send({
           type: "broadcast",
@@ -1438,7 +1694,78 @@ export default function TerminalPage() {
         .catch(() => undefined);
       setLoading(false);
     }
-  };
+  }, [
+    armReturnToIdle,
+    beepEnabled,
+    corAutoEnabled,
+    ean,
+    fetchPrecoFromApi,
+    getCachedPrecoFromStorage,
+    maxSugestoes,
+    playBeep,
+    processImageBackground,
+    speakPrice,
+    tipoSugestao,
+    ttsEnabled,
+    updateProductInBackground,
+    resolveEmpresaContext,
+  ]);
+
+  useEffect(() => {
+    if (!deviceActivated || !precoConfigReady) return;
+    const scan = (raw: unknown) => {
+      const digits = String(raw ?? "").replace(/\D/g, "").trim();
+      if (!digits) return;
+      focusScanInput();
+      setEan(digits);
+      void consultar(digits);
+    };
+
+    const onMessage = (ev: MessageEvent) => {
+      const data = (ev as MessageEvent).data;
+      if (typeof data === "string") {
+        const trimmed = data.trim();
+        if (!trimmed) return;
+        try {
+          const parsed = JSON.parse(trimmed) as unknown;
+          if (parsed && typeof parsed === "object") {
+            const rec = parsed as Record<string, unknown>;
+            if (typeof rec.ean === "string") return scan(rec.ean);
+            if (typeof rec.code === "string") return scan(rec.code);
+            if (typeof rec.barcode === "string") return scan(rec.barcode);
+          }
+        } catch {
+          scan(trimmed);
+        }
+        return;
+      }
+
+      if (data && typeof data === "object") {
+        const rec = data as Record<string, unknown>;
+        if (typeof rec.ean === "string") return scan(rec.ean);
+        if (typeof rec.code === "string") return scan(rec.code);
+        if (typeof rec.barcode === "string") return scan(rec.barcode);
+      }
+    };
+
+    (window as unknown as { mupaScan?: (ean: string) => void }).mupaScan = (eanValue: string) => scan(eanValue);
+    window.addEventListener("message", onMessage);
+    const doc = document as unknown as {
+      addEventListener: (type: "message", listener: (ev: MessageEvent) => void) => void;
+      removeEventListener: (type: "message", listener: (ev: MessageEvent) => void) => void;
+    };
+    doc.addEventListener("message", onMessage);
+
+    return () => {
+      try {
+        delete (window as unknown as { mupaScan?: (ean: string) => void }).mupaScan;
+      } catch {
+        (window as unknown as { mupaScan?: undefined }).mupaScan = undefined;
+      }
+      window.removeEventListener("message", onMessage);
+      doc.removeEventListener("message", onMessage);
+    };
+  }, [consultar, deviceActivated, focusScanInput, precoConfigReady]);
 
   const wizardNext = useCallback(async () => {
     setWizardError(null);
@@ -2300,10 +2627,70 @@ export default function TerminalPage() {
         value={ean}
         onKeyDown={onScanKeyDown}
         onChange={onScanChange}
+        onFocus={() => {
+          if (!scanFocusedRef.current) {
+            scanFocusedRef.current = true;
+            setScanFocused(true);
+          }
+        }}
+        onBlur={() => {
+          if (scanFocusedRef.current) {
+            scanFocusedRef.current = false;
+            setScanFocused(false);
+          }
+          window.setTimeout(() => {
+            if (document.visibilityState !== "visible") return;
+            if (!scanInputRef.current) return;
+            if (document.activeElement === scanInputRef.current) return;
+            focusScanInput();
+          }, 120);
+        }}
         aria-hidden="true"
         style={{ position: "absolute", opacity: 0, width: 1, height: 1, left: -10, top: -10 }}
         {...suppressNativeKeyboardProps}
       />
+      {!scanFocused && (
+        <div style={{ position: "absolute", top: 14, left: 14, zIndex: 80, pointerEvents: "auto" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "8px 10px",
+              borderRadius: 12,
+              background: "rgba(255,255,255,0.78)",
+              border: "1px solid rgba(0,0,0,0.10)",
+              boxShadow: "0 10px 28px rgba(0,0,0,0.12)",
+              backdropFilter: "blur(10px)",
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(0,0,0,0.60)" }}>
+              dispositivo pronto pra consulta
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                focusScanInput();
+                if (!scanFocusedRef.current) {
+                  scanFocusedRef.current = true;
+                  setScanFocused(true);
+                }
+              }}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                fontSize: 12,
+                fontWeight: 800,
+                color: "rgba(0,0,0,0.72)",
+                background: "rgba(255,255,255,0.9)",
+                border: "1px solid rgba(0,0,0,0.12)",
+              }}
+            >
+              Focar
+            </button>
+          </div>
+        </div>
+      )}
       <AnimatePresence>
         {produto && (
           <>
@@ -2748,9 +3135,9 @@ export default function TerminalPage() {
                       minHeight: isLandscape ? Math.round(vh - padding * 2) : Math.round(clamp(220, vh * 0.44, 520)),
                     }}
                   >
-                    {produto.imagem_url_vtex ? (
+                    {(produto.imagem_url_sem_fundo || produto.imagem_url_vtex) ? (
                       <img
-                        src={produto.imagem_url_vtex}
+                        src={produto.imagem_url_sem_fundo || produto.imagem_url_vtex}
                         alt={produto.nome}
                         style={{
                           width: "100%",
