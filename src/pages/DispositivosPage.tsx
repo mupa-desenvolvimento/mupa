@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,10 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import {
-  Building2, Monitor, Plus, Trash2, Copy, QrCode, Globe, Settings, PanelRight, Barcode,
+  Building2, Monitor, Plus, Trash2, Copy, QrCode, Globe, Settings, PanelRight, Barcode, Paintbrush,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
@@ -36,10 +37,12 @@ interface Empresa {
 interface Dispositivo {
   id: string;
   empresa_id: string | null;
+  grupo_id?: string | null;
   nome: string;
   codigo_ativacao: string;
   ativo: boolean;
   input_remoto_ativo?: boolean;
+  config_override?: Record<string, unknown> | null;
   ativado_em: string | null;
   ultimo_acesso: string | null;
   criado_em: string;
@@ -54,6 +57,75 @@ interface EmpresaApiConfig {
   ativo: boolean;
 }
 
+type DispositivoGrupo = {
+  id: string;
+  nome: string;
+  parent_id: string | null;
+  playlist_id: string | null;
+};
+
+type TerminalPlaylist = {
+  id: string;
+  nome: string;
+  ativo: boolean;
+};
+
+type TerminalConsultEntry = {
+  ean: string;
+  ts: number;
+  ok?: boolean;
+};
+
+function consultStorageKey(deviceId: string) {
+  return `mupa_terminal_consult_history_${deviceId}`;
+}
+
+function loadConsultHistory(deviceId: string): TerminalConsultEntry[] {
+  try {
+    const raw = localStorage.getItem(consultStorageKey(deviceId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((x): x is TerminalConsultEntry => {
+        if (!x || typeof x !== "object") return false;
+        const r = x as Record<string, unknown>;
+        return typeof r.ean === "string" && typeof r.ts === "number";
+      })
+      .slice(0, 10);
+  } catch {
+    return [];
+  }
+}
+
+function saveConsultHistory(deviceId: string, entries: TerminalConsultEntry[]) {
+  try {
+    localStorage.setItem(consultStorageKey(deviceId), JSON.stringify(entries.slice(0, 10)));
+  } catch {
+    return;
+  }
+}
+
+type RealtimeChannel = ReturnType<typeof supabase.channel>;
+
+const TERMINAL_LAYOUTS = [
+  { value: "classico", label: "Clássico", desc: "Imagem grande, nome e preço com boa hierarquia, sugestões abaixo" },
+  { value: "compacto", label: "Compacto", desc: "Mais itens em tela, bom para telas menores" },
+  { value: "painel", label: "Painel", desc: "Preço destacado e leitura rápida (varejo)" },
+  { value: "cartaz", label: "Cartaz", desc: "Preço gigante e imagem grande, para leitura à distância" },
+  { value: "vitrine", label: "Vitrine", desc: "Foco total no produto (sem sugestões)" },
+  { value: "minimalista", label: "Minimalista", desc: "Visual limpo e sem sugestões" },
+] as const;
+
+const TERMINAL_LAYOUT_DEFAULTS: Record<(typeof TERMINAL_LAYOUTS)[number]["value"], { font_nome: number; font_preco: number; img_size: number; max_sugestoes: number }> = {
+  classico: { font_nome: 24, font_preco: 72, img_size: 280, max_sugestoes: 3 },
+  compacto: { font_nome: 20, font_preco: 56, img_size: 200, max_sugestoes: 6 },
+  painel: { font_nome: 26, font_preco: 88, img_size: 300, max_sugestoes: 3 },
+  cartaz: { font_nome: 30, font_preco: 110, img_size: 380, max_sugestoes: 2 },
+  vitrine: { font_nome: 28, font_preco: 96, img_size: 360, max_sugestoes: 0 },
+  minimalista: { font_nome: 26, font_preco: 84, img_size: 280, max_sugestoes: 0 },
+};
+
 // ─── Helpers ───
 function generateCode(length = 8): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -62,44 +134,6 @@ function generateCode(length = 8): string {
 
 function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-
-async function sendEanBroadcast(deviceId: string, raw: string): Promise<void> {
-  const digits = raw.replace(/\D/g, "");
-  if (!digits) throw new Error("Informe um EAN com números");
-  const channel = supabase.channel(`terminal-ean-${deviceId}`);
-  await new Promise<void>((resolve, reject) => {
-    let finished = false;
-    let sendStarted = false;
-    channel.subscribe((status, err) => {
-      if (status === "SUBSCRIBED") {
-        if (sendStarted) return;
-        sendStarted = true;
-        channel
-          .send({ type: "broadcast", event: "ean", payload: { ean: digits } })
-          .then((res) => {
-            if (finished) return;
-            finished = true;
-            void supabase.removeChannel(channel);
-            if (res === "ok") resolve();
-            else reject(new Error(res === "timed out" ? "Tempo esgotado ao enviar" : "Falha ao enviar EAN"));
-          })
-          .catch((e) => {
-            if (!finished) {
-              finished = true;
-              void supabase.removeChannel(channel);
-              reject(e instanceof Error ? e : new Error(String(e)));
-            }
-          });
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        if (!finished && !sendStarted) {
-          finished = true;
-          void supabase.removeChannel(channel);
-          reject(err ?? new Error("Canal Realtime indisponível"));
-        }
-      }
-    });
-  });
 }
 
 // ─── Main Page ───
@@ -114,6 +148,14 @@ export default function DispositivosPage() {
   const [detailDevice, setDetailDevice] = useState<Dispositivo | null>(null);
   const [remoteEan, setRemoteEan] = useState("");
   const [sendingEan, setSendingEan] = useState(false);
+  const [recentConsults, setRecentConsults] = useState<TerminalConsultEntry[]>([]);
+  const [terminalLayout, setTerminalLayout] = useState<(typeof TERMINAL_LAYOUTS)[number]["value"]>("classico");
+  const [savingLayout, setSavingLayout] = useState(false);
+  const [terminalChannelReady, setTerminalChannelReady] = useState(false);
+  const terminalChannelRef = useRef<RealtimeChannel | null>(null);
+  const [deviceAppearanceOpen, setDeviceAppearanceOpen] = useState(false);
+  const [deviceOverrides, setDeviceOverrides] = useState<Record<string, unknown>>({});
+  const [savingDeviceOverrides, setSavingDeviceOverrides] = useState(false);
 
   // API config state
   const [apiUrl, setApiUrl] = useState("");
@@ -145,6 +187,24 @@ export default function DispositivosPage() {
       const { data, error } = await supabase.from("empresa_api_config").select("*");
       if (error) throw error;
       return data as EmpresaApiConfig[];
+    },
+  });
+
+  const { data: dispositivoGrupos = [] } = useQuery({
+    queryKey: ["dispositivo_grupos"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("dispositivo_grupos").select("id, nome, parent_id, playlist_id").order("nome");
+      if (error) throw error;
+      return data as DispositivoGrupo[];
+    },
+  });
+
+  const { data: terminalPlaylists = [] } = useQuery({
+    queryKey: ["terminal_playlists"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("terminal_playlists").select("id, nome, ativo").order("nome");
+      if (error) throw error;
+      return data as TerminalPlaylist[];
     },
   });
 
@@ -235,6 +295,19 @@ export default function DispositivosPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const updateDispositivoGrupo = useMutation({
+    mutationFn: async ({ id, grupo_id }: { id: string; grupo_id: string | null }) => {
+      const { error } = await supabase.from("dispositivos").update({ grupo_id }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_, v) => {
+      qc.invalidateQueries({ queryKey: ["dispositivos"] });
+      setDetailDevice((d) => (d && d.id === v.id ? { ...d, grupo_id: v.grupo_id } : d));
+      toast.success("Grupo atualizado");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const saveApiConfig = useMutation({
     mutationFn: async ({ empresa_id, api_url, api_token, tipo_api }: { empresa_id: string; api_url: string; api_token: string; tipo_api: string }) => {
       const existing = apiConfigs.find((c) => c.empresa_id === empresa_id);
@@ -256,6 +329,132 @@ export default function DispositivosPage() {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success("Copiado!");
+  };
+
+  useEffect(() => {
+    if (!detailDevice) return;
+    void (async () => {
+      const { data } = await supabase.from("terminal_config").select("valor").eq("chave", "layout").maybeSingle();
+      const value = (data?.valor || "classico") as (typeof TERMINAL_LAYOUTS)[number]["value"];
+      setTerminalLayout(TERMINAL_LAYOUT_DEFAULTS[value] ? value : "classico");
+    })();
+  }, [detailDevice]);
+
+  useEffect(() => {
+    if (!detailDevice) return;
+    const existing = detailDevice.config_override;
+    if (existing && typeof existing === "object") setDeviceOverrides(existing);
+    else setDeviceOverrides({});
+
+    void (async () => {
+      const { data } = await supabase.from("dispositivos").select("config_override").eq("id", detailDevice.id).maybeSingle();
+      const overrides = (data as { config_override?: unknown } | null)?.config_override;
+      if (overrides && typeof overrides === "object") setDeviceOverrides(overrides as Record<string, unknown>);
+      else setDeviceOverrides({});
+    })();
+  }, [detailDevice]);
+
+  const saveDeviceOverrides = async (next: Record<string, unknown>) => {
+    if (!detailDevice) return;
+    setSavingDeviceOverrides(true);
+    try {
+      const { error } = await supabase
+        .from("dispositivos")
+        .update({ config_override: next } as unknown as { config_override: unknown })
+        .eq("id", detailDevice.id);
+      if (error) throw error;
+      setDeviceOverrides(next);
+      setDetailDevice((prev) => (prev ? { ...prev, config_override: next } : prev));
+      toast.success("Aparência do dispositivo atualizada");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao salvar aparência do dispositivo");
+    } finally {
+      setSavingDeviceOverrides(false);
+    }
+  };
+
+  const setOverrideValue = (key: string, value: unknown) => {
+    setDeviceOverrides((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const applyDeviceLayoutPreset = (layoutKey: (typeof TERMINAL_LAYOUTS)[number]["value"]) => {
+    const preset = TERMINAL_LAYOUT_DEFAULTS[layoutKey];
+    const next: Record<string, unknown> = {
+      ...deviceOverrides,
+      layout: layoutKey,
+      font_nome: preset.font_nome,
+      font_preco: preset.font_preco,
+      img_size: preset.img_size,
+      max_sugestoes: preset.max_sugestoes,
+    };
+    void saveDeviceOverrides(next);
+  };
+
+  useEffect(() => {
+    if (!detailDevice) return;
+    setRecentConsults(loadConsultHistory(detailDevice.id));
+
+    const channel = supabase
+      .channel(`terminal-ean-${detailDevice.id}`)
+      .on("broadcast", { event: "consulted" }, ({ payload }) => {
+        const p = payload as { ean?: string; ts?: number; ok?: boolean } | null;
+        const digits = String(p?.ean ?? "").replace(/\D/g, "");
+        const ts = typeof p?.ts === "number" ? p.ts : Date.now();
+        if (!digits) return;
+        const entry: TerminalConsultEntry = { ean: digits, ts, ok: p?.ok };
+
+        setRecentConsults((prev) => {
+          const next = [entry, ...prev.filter((x) => x.ean !== entry.ean)].slice(0, 10);
+          saveConsultHistory(detailDevice.id, next);
+          return next;
+        });
+      })
+      .subscribe((status) => {
+        setTerminalChannelReady(status === "SUBSCRIBED");
+      });
+
+    terminalChannelRef.current = channel;
+
+    return () => {
+      terminalChannelRef.current = null;
+      setTerminalChannelReady(false);
+      void supabase.removeChannel(channel);
+    };
+  }, [detailDevice]);
+
+  const sendRemoteEan = async (raw: string) => {
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) throw new Error("Informe um EAN com números");
+    const channel = terminalChannelRef.current;
+    if (!channel || !terminalChannelReady) throw new Error("Canal Realtime não conectado ao terminal");
+    const res = await channel.send({ type: "broadcast", event: "ean", payload: { ean: digits } });
+    if (res === "ok") return;
+    throw new Error(res === "timed out" ? "Tempo esgotado ao enviar" : "Falha ao enviar EAN");
+  };
+
+  const applyTerminalLayout = async (layoutKey: (typeof TERMINAL_LAYOUTS)[number]["value"]) => {
+    setSavingLayout(true);
+    try {
+      const preset = TERMINAL_LAYOUT_DEFAULTS[layoutKey];
+      const now = new Date().toISOString();
+      const configs = [
+        { chave: "layout", valor: layoutKey },
+        { chave: "font_nome", valor: String(preset.font_nome) },
+        { chave: "font_preco", valor: String(preset.font_preco) },
+        { chave: "img_size", valor: String(preset.img_size) },
+        { chave: "max_sugestoes", valor: String(preset.max_sugestoes) },
+      ];
+      for (const c of configs) {
+        const { error } = await supabase.from("terminal_config").upsert({ ...c, atualizado_em: now }, { onConflict: "chave" });
+        if (error) throw error;
+      }
+      setTerminalLayout(layoutKey);
+      toast.success(`Layout "${TERMINAL_LAYOUTS.find((l) => l.value === layoutKey)?.label ?? layoutKey}" aplicado`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao salvar layout");
+    } finally {
+      setSavingLayout(false);
+    }
   };
 
   const getEmpresaNome = (id: string | null) => empresas.find((e) => e.id === id)?.nome ?? "—";
@@ -636,6 +835,80 @@ export default function DispositivosPage() {
                   </div>
                 </div>
 
+                <div className="rounded-lg border p-4 space-y-2">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <Label className="text-base">Grupo de Conteúdo</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Define qual playlist este terminal recebe (via grupo/subgrupo).
+                      </p>
+                    </div>
+                    <Select
+                      value={detailDevice.grupo_id ?? "none"}
+                      onValueChange={(v) => updateDispositivoGrupo.mutate({ id: detailDevice.id, grupo_id: v === "none" ? null : v })}
+                      disabled={updateDispositivoGrupo.isPending}
+                    >
+                      <SelectTrigger className="w-52">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sem grupo</SelectItem>
+                        {dispositivoGrupos.map((g) => (
+                          <SelectItem key={g.id} value={g.id}>
+                            {g.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {detailDevice.grupo_id && (
+                    <p className="text-xs text-muted-foreground">
+                      Playlist do grupo:{" "}
+                      {(() => {
+                        const g = dispositivoGrupos.find((x) => x.id === detailDevice.grupo_id);
+                        if (!g?.playlist_id) return "—";
+                        return terminalPlaylists.find((p) => p.id === g.playlist_id)?.nome ?? "—";
+                      })()}
+                    </p>
+                  )}
+                </div>
+
+                <div className="rounded-lg border p-4 space-y-2">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <Label className="text-base">Layout da consulta</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Define como o produto aparece na tela do terminal.
+                      </p>
+                    </div>
+                    <Button type="button" variant="secondary" onClick={() => setDeviceAppearanceOpen(true)}>
+                      <PanelRight className="h-4 w-4 mr-2" />
+                      Aparência
+                    </Button>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <Select
+                      value={terminalLayout}
+                      onValueChange={(v) => void applyTerminalLayout(v as (typeof TERMINAL_LAYOUTS)[number]["value"])}
+                      disabled={savingLayout}
+                    >
+                      <SelectTrigger className="w-52">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TERMINAL_LAYOUTS.map((l) => (
+                          <SelectItem key={l.value} value={l.value}>
+                            {l.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {TERMINAL_LAYOUTS.find((l) => l.value === terminalLayout)?.desc}
+                  </p>
+                </div>
+
                 <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
                   <div className="space-y-0.5">
                     <Label htmlFor="input-remoto" className="text-base">Input remoto (EAN)</Label>
@@ -668,7 +941,7 @@ export default function DispositivosPage() {
                           void (async () => {
                             setSendingEan(true);
                             try {
-                              await sendEanBroadcast(detailDevice.id, remoteEan);
+                              await sendRemoteEan(remoteEan);
                               toast.success("EAN enviado ao terminal");
                               setRemoteEan("");
                             } catch (err) {
@@ -687,7 +960,7 @@ export default function DispositivosPage() {
                       onClick={async () => {
                         setSendingEan(true);
                         try {
-                          await sendEanBroadcast(detailDevice.id, remoteEan);
+                          await sendRemoteEan(remoteEan);
                           toast.success("EAN enviado ao terminal");
                           setRemoteEan("");
                         } catch (err) {
@@ -707,7 +980,312 @@ export default function DispositivosPage() {
                     </p>
                   )}
                 </div>
+
+                <div className="rounded-lg border p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-base">Últimos EANs consultados</Label>
+                      <p className="text-xs text-muted-foreground">Clique para reenviar ao terminal</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setRecentConsults([]);
+                        saveConsultHistory(detailDevice.id, []);
+                        toast.success("Histórico limpo");
+                      }}
+                    >
+                      Limpar
+                    </Button>
+                  </div>
+
+                  {recentConsults.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">Nenhuma consulta recebida ainda.</p>
+                  ) : (
+                    <div className="grid gap-2">
+                      {recentConsults.map((c) => (
+                        <Button
+                          key={`${c.ean}-${c.ts}`}
+                          type="button"
+                          variant="secondary"
+                          className="justify-between font-mono"
+                          disabled={!detailDevice.input_remoto_ativo || sendingEan}
+                          onClick={async () => {
+                            setSendingEan(true);
+                            try {
+                              await sendRemoteEan(c.ean);
+                              toast.success("EAN enviado ao terminal");
+                            } catch (err) {
+                              toast.error(err instanceof Error ? err.message : "Erro ao enviar");
+                            } finally {
+                              setSendingEan(false);
+                            }
+                          }}
+                        >
+                          <span>{c.ean}</span>
+                          <span className="text-xs font-sans text-muted-foreground">
+                            {new Date(c.ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
+
+              <Sheet open={deviceAppearanceOpen} onOpenChange={setDeviceAppearanceOpen}>
+                <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+                  <SheetHeader>
+                    <SheetTitle className="flex items-center gap-2">
+                      <Paintbrush className="h-5 w-5" />
+                      Aparência (por dispositivo)
+                    </SheetTitle>
+                    <SheetDescription>
+                      Essas configurações sobrescrevem o padrão apenas para este terminal.
+                    </SheetDescription>
+                  </SheetHeader>
+
+                  <div className="mt-6 space-y-6">
+                    <div className="rounded-lg border p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-base">Preset de Layout</Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={savingDeviceOverrides}
+                          onClick={() => void saveDeviceOverrides({})}
+                        >
+                          Resetar
+                        </Button>
+                      </div>
+                      <Select
+                        value={String(deviceOverrides.layout || "classico")}
+                        onValueChange={(v) => applyDeviceLayoutPreset(v as (typeof TERMINAL_LAYOUTS)[number]["value"])}
+                        disabled={savingDeviceOverrides}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TERMINAL_LAYOUTS.map((l) => (
+                            <SelectItem key={l.value} value={l.value}>
+                              {l.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {TERMINAL_LAYOUTS.find((l) => l.value === String(deviceOverrides.layout || "classico"))?.desc}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border p-4 space-y-3">
+                      <Label className="text-base">Playlist (override)</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Se definido, este terminal ignora o grupo e usa esta playlist.
+                      </p>
+                      <Select
+                        value={typeof deviceOverrides.playlist_id === "string" && deviceOverrides.playlist_id ? deviceOverrides.playlist_id : "inherit"}
+                        onValueChange={(v) => {
+                          if (v === "inherit") {
+                            const next: Record<string, unknown> = { ...deviceOverrides };
+                            delete next.playlist_id;
+                            void saveDeviceOverrides(next);
+                            return;
+                          }
+                          void saveDeviceOverrides({ ...deviceOverrides, playlist_id: v });
+                        }}
+                        disabled={savingDeviceOverrides}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="inherit">Herdar (grupo/padrão)</SelectItem>
+                          {terminalPlaylists.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.nome}{p.ativo ? "" : " (inativa)"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="rounded-lg border p-4 space-y-3">
+                      <Label className="text-base">Tamanhos & Sugestões</Label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Fonte Nome</Label>
+                          <Input
+                            type="number"
+                            value={String(deviceOverrides.font_nome ?? "")}
+                            placeholder="24"
+                            onChange={(e) => setOverrideValue("font_nome", Number(e.target.value))}
+                            onBlur={() => void saveDeviceOverrides({ ...deviceOverrides })}
+                            disabled={savingDeviceOverrides}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Fonte Preço</Label>
+                          <Input
+                            type="number"
+                            value={String(deviceOverrides.font_preco ?? "")}
+                            placeholder="72"
+                            onChange={(e) => setOverrideValue("font_preco", Number(e.target.value))}
+                            onBlur={() => void saveDeviceOverrides({ ...deviceOverrides })}
+                            disabled={savingDeviceOverrides}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Tamanho Imagem</Label>
+                          <Input
+                            type="number"
+                            value={String(deviceOverrides.img_size ?? "")}
+                            placeholder="280"
+                            onChange={(e) => setOverrideValue("img_size", Number(e.target.value))}
+                            onBlur={() => void saveDeviceOverrides({ ...deviceOverrides })}
+                            disabled={savingDeviceOverrides}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Max. Sugestões</Label>
+                          <Input
+                            type="number"
+                            value={String(deviceOverrides.max_sugestoes ?? "")}
+                            placeholder="3"
+                            onChange={(e) => setOverrideValue("max_sugestoes", Number(e.target.value))}
+                            onBlur={() => void saveDeviceOverrides({ ...deviceOverrides })}
+                            disabled={savingDeviceOverrides}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border p-4 space-y-3">
+                      <Label className="text-base">Posições & Margens</Label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Padding Externo</Label>
+                          <Input
+                            type="number"
+                            value={String(deviceOverrides.layout_padding ?? "")}
+                            placeholder="10"
+                            onChange={(e) => setOverrideValue("layout_padding", Number(e.target.value))}
+                            onBlur={() => void saveDeviceOverrides({ ...deviceOverrides })}
+                            disabled={savingDeviceOverrides}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Gap</Label>
+                          <Input
+                            type="number"
+                            value={String(deviceOverrides.layout_gap ?? "")}
+                            placeholder="0 (auto)"
+                            onChange={(e) => setOverrideValue("layout_gap", Number(e.target.value))}
+                            onBlur={() => void saveDeviceOverrides({ ...deviceOverrides })}
+                            disabled={savingDeviceOverrides}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Imagem (lado)</Label>
+                          <Select
+                            value={String(deviceOverrides.image_side || "right")}
+                            onValueChange={(v) => { setOverrideValue("image_side", v); void saveDeviceOverrides({ ...deviceOverrides, image_side: v }); }}
+                            disabled={savingDeviceOverrides}
+                          >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="left">Esquerda</SelectItem>
+                              <SelectItem value="right">Direita</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Alinhamento (h)</Label>
+                          <Select
+                            value={String(deviceOverrides.landscape_align || "top")}
+                            onValueChange={(v) => { setOverrideValue("landscape_align", v); void saveDeviceOverrides({ ...deviceOverrides, landscape_align: v }); }}
+                            disabled={savingDeviceOverrides}
+                          >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="top">Topo</SelectItem>
+                              <SelectItem value="center">Centro</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Info (vertical)</Label>
+                          <Select
+                            value={String(deviceOverrides.info_vertical_align || "top")}
+                            onValueChange={(v) => { setOverrideValue("info_vertical_align", v); void saveDeviceOverrides({ ...deviceOverrides, info_vertical_align: v }); }}
+                            disabled={savingDeviceOverrides}
+                          >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="top">Topo</SelectItem>
+                              <SelectItem value="center">Centro</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Margem da Imagem</Label>
+                          <Input
+                            type="number"
+                            value={String(deviceOverrides.image_margin_right ?? "")}
+                            placeholder="10"
+                            onChange={(e) => setOverrideValue("image_margin_right", Number(e.target.value))}
+                            onBlur={() => void saveDeviceOverrides({ ...deviceOverrides })}
+                            disabled={savingDeviceOverrides}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border p-4 space-y-3">
+                      <Label className="text-base">Overlay de Sugestões</Label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Inset</Label>
+                          <Input
+                            type="number"
+                            value={String(deviceOverrides.suggestions_overlay_inset ?? "")}
+                            placeholder="10"
+                            onChange={(e) => setOverrideValue("suggestions_overlay_inset", Number(e.target.value))}
+                            onBlur={() => void saveDeviceOverrides({ ...deviceOverrides })}
+                            disabled={savingDeviceOverrides}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Altura (%)</Label>
+                          <Input
+                            type="number"
+                            value={String(deviceOverrides.suggestions_overlay_max_pct ?? "")}
+                            placeholder="40"
+                            onChange={(e) => setOverrideValue("suggestions_overlay_max_pct", Number(e.target.value))}
+                            onBlur={() => void saveDeviceOverrides({ ...deviceOverrides })}
+                            disabled={savingDeviceOverrides}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border p-4 space-y-3">
+                      <Label className="text-base">Texto do Loading</Label>
+                      <Input
+                        value={String(deviceOverrides.loading_text ?? "")}
+                        placeholder="Por favor aguarde, consultando o produto"
+                        onChange={(e) => setOverrideValue("loading_text", e.target.value)}
+                        onBlur={() => void saveDeviceOverrides({ ...deviceOverrides })}
+                        disabled={savingDeviceOverrides}
+                      />
+                    </div>
+                  </div>
+                </SheetContent>
+              </Sheet>
             </>
           )}
         </SheetContent>

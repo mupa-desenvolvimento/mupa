@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# React Native / Android build caches (kiosk subproject)
+mupa-terminal-kiosk/android/.gradle/

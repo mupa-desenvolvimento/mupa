@@ -36,6 +36,23 @@ interface MediaItem {
   duracao_segundos: number;
 }
 
+type PrecoConsultaCache = {
+  v: 1;
+  codigo_empresa: string;
+  numero_loja: string;
+  ean: string;
+  updated_at: string;
+  produto: Produto;
+};
+
+type MediaManifest = {
+  v: 1;
+  updated_at: string;
+  device_id: string | null;
+  playlist_id: string | null;
+  items: Array<{ id: string; tipo: "imagem" | "video"; url: string; duracao_segundos: number }>;
+};
+
 interface ProductTheme {
   primary: string;
   secondary: string;
@@ -107,11 +124,145 @@ function clamp(min: number, value: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+const EMPRESA_CODE_RE = /^[A-Z]{3}[0-9]{3}$/;
+
+function normalizeEmpresaCode(raw: string) {
+  return String(raw ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6);
+}
+
+function isValidEmpresaCode(code: string) {
+  return EMPRESA_CODE_RE.test(code);
+}
+
+function sanitizeTerminalDeviceName(raw: string) {
+  const trimmed = String(raw ?? "").replace(/\s+/g, " ").trim();
+  let out = "";
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const c = trimmed.charCodeAt(i);
+    if (c < 32 || c === 127) continue;
+    out += trimmed[i];
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
 function getViewport() {
   const vv = window.visualViewport;
   const width = Math.round(vv?.width ?? window.innerWidth);
   const height = Math.round(vv?.height ?? window.innerHeight);
   return { width, height };
+}
+
+function cacheKeyForMediaManifest(deviceId: string | null) {
+  return `mupa:media_manifest:v1:${deviceId ?? "none"}`;
+}
+
+function cacheKeyForEmpresaPrecoConfig(codigoEmpresa: string) {
+  return `mupa:empresa_preco_config:v1:${codigoEmpresa}`;
+}
+
+function cacheKeyForPreco(codigoEmpresa: string, numeroLoja: string, ean: string) {
+  return `mupa:preco_cache:v1:${codigoEmpresa}:${numeroLoja}:${ean}`;
+}
+
+let cacheDbPromise: Promise<IDBDatabase> | null = null;
+
+function openCacheDb() {
+  if (cacheDbPromise) return cacheDbPromise;
+  cacheDbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open("mupa-cache", 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return cacheDbPromise;
+}
+
+async function idbGet<T>(key: string): Promise<T | null> {
+  try {
+    const db = await openCacheDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction("kv", "readonly");
+      const store = tx.objectStore("kv");
+      const req = store.get(key);
+      req.onsuccess = () => resolve((req.result as T | undefined) ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function idbSet<T>(key: string, value: T): Promise<boolean> {
+  try {
+    const db = await openCacheDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("kv", "readwrite");
+      const store = tx.objectStore("kv");
+      store.put(value as unknown, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function cacheGetJson<T>(key: string): Promise<T | null> {
+  const fromIdb = await idbGet<T>(key);
+  if (fromIdb) return fromIdb;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function cacheSetJson<T>(key: string, value: T): Promise<void> {
+  const ok = await idbSet(key, value);
+  if (ok) return;
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    return;
+  }
+}
+
+function normalizeLojaNumero(raw: string) {
+  return String(raw ?? "").replace(/\s+/g, " ").trim();
+}
+
+function getByPath(obj: unknown, path: string) {
+  const parts = String(path || "").split(".").map((p) => p.trim()).filter(Boolean);
+  let cur: unknown = obj;
+  for (const part of parts) {
+    if (cur == null) return undefined;
+    if (typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[part];
+  }
+  return cur;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  return value as Record<string, unknown>;
+}
+
+function parseNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const cleaned = value.replace(",", ".").replace(/[^\d.]/g, "");
+    const n = Number(cleaned);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
 }
 
 function hslToRgb({ h, s, l }: HSL): RGB {
@@ -440,72 +591,204 @@ export default function TerminalPage() {
   const [deviceActivated, setDeviceActivated] = useState<boolean>(() => {
     return !!localStorage.getItem("mupa_device_id");
   });
-  const [activationCode, setActivationCode] = useState("");
-  const [activationDeviceName, setActivationDeviceName] = useState(() => {
-    return localStorage.getItem("mupa_device_name") || "";
-  });
-  const [activationField, setActivationField] = useState<"codigo" | "nome">("codigo");
-  const [activationError, setActivationError] = useState<string | null>(null);
+  const [wizardStep, setWizardStep] = useState<0 | 1 | 2 | 3>(0);
+  const [wizardEmpresaCode, setWizardEmpresaCode] = useState("");
+  const [wizardEmpresaId, setWizardEmpresaId] = useState<string | null>(null);
+  const [wizardGrupoId, setWizardGrupoId] = useState<string | null>(null);
+  const [wizardDeviceName, setWizardDeviceName] = useState(() => localStorage.getItem("mupa_device_name") || "");
+  const [wizardLojaNumero, setWizardLojaNumero] = useState(() => localStorage.getItem("mupa_loja_numero") || "");
+  const [wizardGroupPath, setWizardGroupPath] = useState<string[]>([]);
+  const [wizardGroups, setWizardGroups] = useState<Array<{ id: string; nome: string; parent_id: string | null }>>([]);
+  const [wizardError, setWizardError] = useState<string | null>(null);
   const [activatingDevice, setActivatingDevice] = useState(false);
   const [deviceEmpresa, setDeviceEmpresa] = useState<string | null>(null);
+  const [empresaCode, setEmpresaCode] = useState(() => normalizeEmpresaCode(localStorage.getItem("mupa_empresa_code") || ""));
+  const [lojaNumeroAtivo, setLojaNumeroAtivo] = useState(() => normalizeLojaNumero(localStorage.getItem("mupa_loja_numero") || ""));
 
-  const sanitizeDeviceName = (raw: string) => {
-    const trimmed = raw.replace(/\s+/g, " ").trim();
-    let out = "";
-    for (let i = 0; i < trimmed.length; i += 1) {
-      const c = trimmed.charCodeAt(i);
-      if (c < 32 || c === 127) continue;
-      out += trimmed[i];
-      if (out.length >= 40) break;
+  const [precoConfigLoading, setPrecoConfigLoading] = useState(false);
+  const [precoConfigReady, setPrecoConfigReady] = useState(false);
+  const [precoConfigError, setPrecoConfigError] = useState<string | null>(null);
+  const [precoConfigUpdatedAt, setPrecoConfigUpdatedAt] = useState<string | null>(null);
+
+  const produtosByEanRef = useRef<Record<string, Produto>>({});
+
+  const resetToWizard = useCallback(() => {
+    localStorage.removeItem("mupa_device_id");
+    localStorage.removeItem("mupa_empresa_id");
+    localStorage.removeItem("mupa_empresa_code");
+    localStorage.removeItem("mupa_device_name");
+    localStorage.removeItem("mupa_loja_numero");
+    setEmpresaCode("");
+    setLojaNumeroAtivo("");
+    setDeviceEmpresa(null);
+    setDeviceActivated(false);
+    setWizardStep(0);
+    setWizardEmpresaCode("");
+    setWizardEmpresaId(null);
+    setWizardGrupoId(null);
+    setWizardDeviceName("");
+    setWizardLojaNumero("");
+    setWizardGroupPath([]);
+    setWizardError(null);
+    setPrecoConfigLoading(false);
+    setPrecoConfigReady(false);
+    setPrecoConfigError(null);
+    setPrecoConfigUpdatedAt(null);
+    produtosByEanRef.current = {};
+  }, []);
+
+  const resolveEmpresaContext = useCallback(async (): Promise<{ codigo_empresa: string; numero_loja: string; empresa_id: string } | null> => {
+    let code = empresaCode;
+    if (!code) {
+      const empresaId = localStorage.getItem("mupa_empresa_id") || deviceEmpresa;
+      if (empresaId) {
+        const { data } = await supabase.from("empresas").select("codigo_vinculo").eq("id", empresaId).maybeSingle();
+        const next = normalizeEmpresaCode((data as { codigo_vinculo?: string | null } | null)?.codigo_vinculo ?? "");
+        if (next) {
+          code = next;
+          localStorage.setItem("mupa_empresa_code", next);
+          setEmpresaCode(next);
+        }
+      }
     }
-    return out;
-  };
 
-  const activateDevice = async () => {
-    const code = activationCode.trim().toUpperCase();
-    if (!code) return;
+    const loja = normalizeLojaNumero(lojaNumeroAtivo || localStorage.getItem("mupa_loja_numero") || "");
+    if (loja && loja !== lojaNumeroAtivo) setLojaNumeroAtivo(loja);
+    if (!code || !isValidEmpresaCode(code) || !loja) return null;
+
+    const { data: emp, error: empErr } = await supabase
+      .from("empresas")
+      .select("id, ativo")
+      .eq("codigo_vinculo", code)
+      .maybeSingle();
+    if (empErr) throw empErr;
+    if (!emp || emp.ativo === false) return null;
+    return { codigo_empresa: code, numero_loja: loja, empresa_id: emp.id as string };
+  }, [deviceEmpresa, empresaCode, lojaNumeroAtivo]);
+
+  const ensureEmpresaPrecoConfigLoaded = useCallback(async () => {
+    if (!deviceActivated) return;
+    setPrecoConfigLoading(true);
+    setPrecoConfigError(null);
+    try {
+      const ctx = await resolveEmpresaContext();
+      if (!ctx) throw new Error("Configuração incompleta. Revise código da empresa e número da loja.");
+
+      const ckey = cacheKeyForEmpresaPrecoConfig(ctx.codigo_empresa);
+      const cached = await cacheGetJson<{ v: 1; updated_at: string; ok: boolean }>(ckey);
+      if (cached && cached.v === 1 && cached.ok) {
+        setPrecoConfigUpdatedAt(cached.updated_at);
+        setPrecoConfigReady(true);
+      }
+
+      if (!navigator.onLine) {
+        if (cached && cached.v === 1 && cached.ok) return;
+        throw new Error("Sem internet e sem cache da configuração de preço para esta empresa.");
+      }
+
+      const res = await fetch(`${BASE_URL}/api-consulta-preco`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "status", codigo_empresa: ctx.codigo_empresa }),
+      });
+      const payload = (await res.json().catch(() => null)) as { ok?: boolean; has_config?: boolean; error?: string } | null;
+      if (!res.ok) throw new Error(payload?.error || "Falha ao validar configuração de preço");
+      if (!payload?.has_config) throw new Error("Configuração de consulta de preço não encontrada para esta empresa.");
+
+      const next = { v: 1 as const, updated_at: new Date().toISOString(), ok: true };
+      await cacheSetJson(ckey, next);
+      setPrecoConfigUpdatedAt(next.updated_at);
+      setPrecoConfigReady(true);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Erro ao carregar configuração de preço";
+      setPrecoConfigError(message);
+      setPrecoConfigReady(false);
+    } finally {
+      setPrecoConfigLoading(false);
+    }
+  }, [deviceActivated, resolveEmpresaContext]);
+
+  useEffect(() => {
+    if (!deviceActivated) return;
+    void ensureEmpresaPrecoConfigLoaded();
+  }, [deviceActivated, ensureEmpresaPrecoConfigLoaded]);
+
+  useEffect(() => {
+    if (!deviceActivated) return;
+    const intervalMs = 10 * 60 * 1000;
+    const t = window.setInterval(() => {
+      if (!navigator.onLine) return;
+      void ensureEmpresaPrecoConfigLoaded();
+    }, intervalMs);
+    return () => window.clearInterval(t);
+  }, [deviceActivated, ensureEmpresaPrecoConfigLoaded]);
+
+  const loadGroupsForWizard = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("dispositivo_grupos")
+        .select("id, nome, parent_id")
+        .order("nome", { ascending: true });
+      if (error) throw error;
+      setWizardGroups((data || []) as Array<{ id: string; nome: string; parent_id: string | null }>);
+    } catch {
+      setWizardGroups([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (deviceActivated) return;
+    void loadGroupsForWizard();
+  }, [deviceActivated, loadGroupsForWizard]);
+
+  const activateDeviceWizard = useCallback(async () => {
+    const codigoEmpresa = normalizeEmpresaCode(wizardEmpresaCode);
+    const deviceName = sanitizeTerminalDeviceName(wizardDeviceName) || "Terminal";
+    const lojaNumero = wizardLojaNumero.replace(/\s+/g, " ").trim().toUpperCase();
+
     setActivatingDevice(true);
-    setActivationError(null);
+    setWizardError(null);
     try {
       const deviceId = localStorage.getItem("mupa_device_id");
-      const deviceName = sanitizeDeviceName(activationDeviceName) || "Terminal";
-      const { data, error } = await supabase.functions.invoke("api-ativar-dispositivo", {
-        body: {
-          codigo_empresa: code,
-          device_id: deviceId || null,
-          device_name: deviceName,
-        },
+      const { data, error } = await supabase.rpc("activate_terminal_device", {
+        p_codigo_empresa: codigoEmpresa,
+        p_device_id: deviceId || null,
+        p_device_name: deviceName,
+        p_grupo_id: wizardGrupoId,
+        p_loja_numero: lojaNumero || null,
       });
+      if (error) throw error;
 
-      if (error) {
-        const msg = error.message || "Erro ao ativar dispositivo";
-        setActivationError(
-          msg.includes("Failed to send a request to the Edge Function")
-            ? "Função de ativação indisponível. Publique a Edge Function 'api-ativar-dispositivo' no Supabase."
-            : msg,
-        );
-        setActivatingDevice(false);
-        return;
-      }
+      const payload = data as unknown as { dispositivo?: { id: string; empresa_id: string | null; codigo_ativacao?: string | null } } | null;
+      const dev = payload?.dispositivo;
+      if (!dev?.id) throw new Error("Resposta inválida ao ativar dispositivo");
 
-      const dispositivo = (data as { dispositivo?: { id?: string; empresa_id?: string | null } } | null)?.dispositivo ?? null;
-      if (!dispositivo?.id) {
-        setActivationError("Resposta inválida do servidor");
-        setActivatingDevice(false);
-        return;
-      }
-
-      localStorage.setItem("mupa_device_id", dispositivo.id);
-      localStorage.setItem("mupa_empresa_id", dispositivo.empresa_id || "");
+      localStorage.setItem("mupa_device_id", dev.id);
+      localStorage.setItem("mupa_empresa_id", dev.empresa_id || "");
+      localStorage.setItem("mupa_empresa_code", codigoEmpresa);
       localStorage.setItem("mupa_device_name", deviceName);
-      setDeviceEmpresa(dispositivo.empresa_id ?? null);
+      localStorage.setItem("mupa_loja_numero", lojaNumero);
+      setEmpresaCode(codigoEmpresa);
+      setLojaNumeroAtivo(lojaNumero);
+      setDeviceEmpresa(dev.empresa_id ?? null);
       setDeviceActivated(true);
+      if (payload?.warnings?.length) {
+        setWizardError(payload.warnings.join(" "));
+      }
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
-      setActivationError(message || "Erro ao ativar dispositivo");
+      const isNetwork =
+        e instanceof TypeError &&
+        (message.toLowerCase().includes("failed to fetch") || message.toLowerCase().includes("network"));
+      setWizardError(
+        isNetwork
+          ? "Não foi possível ativar (erro de rede). Verifique a internet do terminal."
+          : (message || "Erro ao ativar dispositivo")
+      );
+    } finally {
+      setActivatingDevice(false);
     }
-    setActivatingDevice(false);
-  };
+  }, [wizardEmpresaCode, wizardDeviceName, wizardGrupoId, wizardLojaNumero]);
 
   // Load empresa on mount if device is activated
   useEffect(() => {
@@ -523,22 +806,40 @@ export default function TerminalPage() {
   const [tipoSugestao, setTipoSugestao] = useState<string>("complementares");
   const [beepEnabled, setBeepEnabled] = useState(true);
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [layout, setLayout] = useState("classico");
   const [fontNome, setFontNome] = useState(24);
   const [fontPreco, setFontPreco] = useState(72);
+  const [imgSize, setImgSize] = useState(280);
   const [maxSugestoes, setMaxSugestoes] = useState(3);
   const [corAutoEnabled, setCorAutoEnabled] = useState(true);
   const [corFundo, setCorFundo] = useState("#1a0a0a");
   const [corDescricao, setCorDescricao] = useState("#c0392b");
   const [corPreco, setCorPreco] = useState("#ffffff");
   const [wavesEnabled, setWavesEnabled] = useState(false);
+  const [footerEnabled, setFooterEnabled] = useState(true);
+  const [footerClockEnabled, setFooterClockEnabled] = useState(true);
+  const [layoutPadding, setLayoutPadding] = useState(10);
+  const [layoutGap, setLayoutGap] = useState(0);
+  const [imageMarginRight, setImageMarginRight] = useState(10);
+  const [imageSide, setImageSide] = useState<"left" | "right">("right");
+  const [landscapeAlign, setLandscapeAlign] = useState<"top" | "center">("top");
+  const [suggestionsOverlayInset, setSuggestionsOverlayInset] = useState(10);
+  const [suggestionsOverlayMaxPct, setSuggestionsOverlayMaxPct] = useState(40);
+  const [loadingText, setLoadingText] = useState("Por favor aguarde, consultando o produto");
+  const [infoVerticalAlign, setInfoVerticalAlign] = useState<"top" | "center">("top");
   const [theme, setTheme] = useState<ProductTheme | null>(null);
   const [viewport, setViewport] = useState(() => getViewport());
   const orientation: Orientation = viewport.height < viewport.width ? "landscape" : "portrait";
   const lastOrientationSentRef = useRef<{ value: Orientation; ts: number } | null>(null);
+  const [now, setNow] = useState(() => new Date());
 
   const containerRef = useRef<HTMLDivElement>(null);
   const hiddenInputRef = useRef<HTMLInputElement>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const scanBufferRef = useRef("");
+  const scanLastKeyTsRef = useRef(0);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const terminalEanChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const activeTheme = useMemo<ProductTheme>(() => {
     if (corAutoEnabled && theme) return theme;
@@ -620,28 +921,90 @@ export default function TerminalPage() {
     }
   }, [orientation, viewport.height, viewport.width]);
 
-  const loadConfig = useCallback(async () => {
-    const { data } = await supabase.from("terminal_config").select("chave, valor");
-    if (data) {
-      for (const row of data) {
-        switch (row.chave) {
-          case "tipo_sugestao": setTipoSugestao(row.valor); break;
-          case "beep_enabled": setBeepEnabled(row.valor !== "false"); break;
-          case "tts_enabled": setTtsEnabled(row.valor !== "false"); break;
-          case "font_nome": setFontNome(Number(row.valor) || 24); break;
-          case "font_preco": setFontPreco(Number(row.valor) || 72); break;
-          case "max_sugestoes": setMaxSugestoes(Number(row.valor) || 3); break;
-          case "cor_auto": setCorAutoEnabled(row.valor !== "false"); break;
-          case "cor_fundo": setCorFundo(row.valor); break;
-          case "cor_descricao": setCorDescricao(row.valor); break;
-          case "cor_preco": setCorPreco(row.valor); break;
-          case "waves_enabled": setWavesEnabled(row.valor === "true"); break;
-        }
+  const applyConfigValue = useCallback((chave: string, raw: unknown) => {
+    const asString = typeof raw === "string" ? raw : raw == null ? "" : String(raw);
+    switch (chave) {
+      case "tipo_sugestao": setTipoSugestao(asString); break;
+      case "beep_enabled": setBeepEnabled(asString !== "false"); break;
+      case "tts_enabled": setTtsEnabled(asString !== "false"); break;
+      case "layout": setLayout(asString); break;
+      case "font_nome": setFontNome(Number(asString) || 24); break;
+      case "font_preco": setFontPreco(Number(asString) || 72); break;
+      case "img_size": {
+        const n = Number(raw);
+        setImgSize(Number.isFinite(n) ? n : 280);
+        break;
+      }
+      case "max_sugestoes": {
+        const n = Number(raw);
+        setMaxSugestoes(Number.isFinite(n) ? n : 3);
+        break;
+      }
+      case "cor_auto": setCorAutoEnabled(asString !== "false"); break;
+      case "cor_fundo": setCorFundo(asString); break;
+      case "cor_descricao": setCorDescricao(asString); break;
+      case "cor_preco": setCorPreco(asString); break;
+      case "waves_enabled": setWavesEnabled(asString === "true"); break;
+      case "footer_enabled": setFooterEnabled(asString !== "false"); break;
+      case "footer_clock_enabled": setFooterClockEnabled(asString !== "false"); break;
+      case "layout_padding": {
+        const n = Number(raw);
+        if (Number.isFinite(n)) setLayoutPadding(n);
+        break;
+      }
+      case "layout_gap": {
+        const n = Number(raw);
+        if (Number.isFinite(n)) setLayoutGap(n);
+        break;
+      }
+      case "image_margin_right": {
+        const n = Number(raw);
+        if (Number.isFinite(n)) setImageMarginRight(n);
+        break;
+      }
+      case "image_side": {
+        const v = asString === "left" ? "left" : asString === "right" ? "right" : null;
+        if (v) setImageSide(v);
+        break;
+      }
+      case "landscape_align": {
+        const v = asString === "top" ? "top" : asString === "center" ? "center" : null;
+        if (v) setLandscapeAlign(v);
+        break;
+      }
+      case "suggestions_overlay_inset": {
+        const n = Number(raw);
+        if (Number.isFinite(n)) setSuggestionsOverlayInset(n);
+        break;
+      }
+      case "suggestions_overlay_max_pct": {
+        const n = Number(raw);
+        if (Number.isFinite(n)) setSuggestionsOverlayMaxPct(n);
+        break;
+      }
+      case "loading_text": setLoadingText(asString); break;
+      case "info_vertical_align": {
+        const v = asString === "center" ? "center" : asString === "top" ? "top" : null;
+        if (v) setInfoVerticalAlign(v);
+        break;
       }
     }
   }, []);
 
+  const loadConfig = useCallback(async () => {
+    const { data } = await supabase.from("terminal_config").select("chave, valor");
+    if (data) {
+      for (const row of data) applyConfigValue(row.chave, row.valor);
+    }
+  }, [applyConfigValue]);
+
   useEffect(() => { loadConfig(); }, [loadConfig]);
+
+  useEffect(() => {
+    if (!footerClockEnabled) return;
+    const t = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(t);
+  }, [footerClockEnabled]);
 
   useEffect(() => {
     const channel = supabase.channel("terminal-config-changes")
@@ -650,15 +1013,135 @@ export default function TerminalPage() {
     return () => { supabase.removeChannel(channel); };
   }, [loadConfig]);
 
-  useEffect(() => {
-    const channel = supabase.channel("terminal-media-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "terminal_media" }, async () => {
-        const { data } = await supabase.from("terminal_media").select("id, tipo, url, duracao_segundos")
-          .eq("ativo", true).order("ordem", { ascending: true });
-        if (data) setMediaList(data as MediaItem[]);
-      }).subscribe();
-    return () => { supabase.removeChannel(channel); };
+  const persistMediaManifest = useCallback(async (list: MediaItem[], playlistId: string | null) => {
+    const deviceId = localStorage.getItem("mupa_device_id");
+    const manifest: MediaManifest = {
+      v: 1,
+      updated_at: new Date().toISOString(),
+      device_id: deviceId,
+      playlist_id: playlistId,
+      items: list.map((m) => ({ id: m.id, tipo: m.tipo, url: m.url, duracao_segundos: m.duracao_segundos })),
+    };
+    await cacheSetJson(cacheKeyForMediaManifest(deviceId), manifest);
   }, []);
+
+  const prefetchMediaFiles = useCallback(async (urls: string[]) => {
+    if (!("caches" in window)) return;
+    if (!navigator.onLine) return;
+    const cache = await caches.open("mupa-media-v1");
+    const unique = Array.from(new Set(urls.filter((u) => typeof u === "string" && u.length > 0)));
+    const head = unique.slice(0, 48);
+    await Promise.allSettled(
+      head.map(async (url) => {
+        const existing = await cache.match(url);
+        if (existing) return;
+        const res = await fetch(url, { cache: "reload" });
+        if (!res.ok) return;
+        await cache.put(url, res.clone());
+      })
+    );
+  }, []);
+
+  useEffect(() => {
+    const refreshMedia = async () => {
+      const deviceId = localStorage.getItem("mupa_device_id");
+      if (!deviceId) {
+        const { data } = await supabase
+          .from("terminal_media")
+          .select("id, tipo, url, duracao_segundos")
+          .eq("ativo", true)
+          .order("ordem", { ascending: true });
+        if (data) {
+          const list = data as MediaItem[];
+          setMediaList(list);
+          void persistMediaManifest(list, null);
+          void prefetchMediaFiles(list.map((m) => m.url));
+        }
+        return;
+      }
+
+      const { data: dev } = await supabase
+        .from("dispositivos")
+        .select("id, grupo_id, config_override")
+        .eq("id", deviceId)
+        .maybeSingle();
+
+      let playlistId: string | null = null;
+      const overrides = (dev as { config_override?: unknown } | null)?.config_override;
+      if (overrides && typeof overrides === "object") {
+        const raw = (overrides as Record<string, unknown>).playlist_id;
+        if (typeof raw === "string" && raw.length > 0) playlistId = raw;
+      }
+
+      let groupId = (dev as { grupo_id?: string | null } | null)?.grupo_id ?? null;
+      for (let i = 0; i < 8 && !playlistId && groupId; i += 1) {
+        const { data: g } = await supabase
+          .from("dispositivo_grupos")
+          .select("id, parent_id, playlist_id")
+          .eq("id", groupId)
+          .maybeSingle();
+        if (!g) break;
+        if (g.playlist_id) {
+          playlistId = g.playlist_id;
+          break;
+        }
+        groupId = g.parent_id;
+      }
+
+      if (!playlistId) {
+        const { data } = await supabase
+          .from("terminal_media")
+          .select("id, tipo, url, duracao_segundos")
+          .eq("ativo", true)
+          .order("ordem", { ascending: true });
+        if (data) {
+          const list = data as MediaItem[];
+          setMediaList(list);
+          void persistMediaManifest(list, null);
+          void prefetchMediaFiles(list.map((m) => m.url));
+        }
+        return;
+      }
+
+      const { data: items } = await supabase
+        .from("terminal_playlist_items")
+        .select("id, ordem, duracao_segundos, terminal_media ( id, tipo, url, duracao_segundos )")
+        .eq("playlist_id", playlistId)
+        .eq("ativo", true)
+        .order("ordem", { ascending: true });
+
+      const list = (items || [])
+        .map((it) => {
+          const media = (it as unknown as { terminal_media?: MediaItem | null }).terminal_media;
+          if (!media) return null;
+          const duration = (it as unknown as { duracao_segundos?: number | null }).duracao_segundos;
+          return {
+            id: (it as unknown as { id: string }).id,
+            tipo: media.tipo,
+            url: media.url,
+            duracao_segundos: typeof duration === "number" ? duration : media.duracao_segundos,
+          } satisfies MediaItem;
+        })
+        .filter((x): x is MediaItem => x !== null);
+
+      setMediaList(list);
+      void persistMediaManifest(list, playlistId);
+      void prefetchMediaFiles(list.map((m) => m.url));
+    };
+
+    void refreshMedia();
+
+    const channel = supabase
+      .channel("terminal-media-routing-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "terminal_media" }, () => void refreshMedia())
+      .on("postgres_changes", { event: "*", schema: "public", table: "terminal_playlist_items" }, () => void refreshMedia())
+      .on("postgres_changes", { event: "*", schema: "public", table: "terminal_playlists" }, () => void refreshMedia())
+      .on("postgres_changes", { event: "*", schema: "public", table: "dispositivo_grupos" }, () => void refreshMedia())
+      .on("postgres_changes", { event: "*", schema: "public", table: "dispositivos" }, () => void refreshMedia())
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [persistMediaManifest, prefetchMediaFiles]);
 
   useEffect(() => {
     if (error) {
@@ -668,16 +1151,43 @@ export default function TerminalPage() {
     return () => { if (errorTimerRef.current) clearTimeout(errorTimerRef.current); };
   }, [error]);
 
-  useEffect(() => {
-    const fetchMedia = async () => {
-      const { data } = await supabase.from("terminal_media").select("id, tipo, url, duracao_segundos")
-        .eq("ativo", true).order("ordem", { ascending: true });
-      if (data) setMediaList(data as MediaItem[]);
-    };
-    fetchMedia();
-  }, []);
-
   const isIdle = !produto && !loading && !error;
+  const [offlineMediaUrl, setOfflineMediaUrl] = useState<string | null>(null);
+  const offlineMediaUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const current = mediaList[currentMediaIndex];
+    if (!isIdle || !current || !current.url) {
+      if (offlineMediaUrlRef.current) URL.revokeObjectURL(offlineMediaUrlRef.current);
+      offlineMediaUrlRef.current = null;
+      setOfflineMediaUrl(null);
+      return;
+    }
+
+    if (navigator.onLine || !("caches" in window)) {
+      if (offlineMediaUrlRef.current) URL.revokeObjectURL(offlineMediaUrlRef.current);
+      offlineMediaUrlRef.current = null;
+      setOfflineMediaUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    void caches.open("mupa-media-v1").then(async (cache) => {
+      const match = await cache.match(current.url);
+      if (!match) return;
+      const blob = await match.blob();
+      if (cancelled) return;
+      const objUrl = URL.createObjectURL(blob);
+      if (offlineMediaUrlRef.current) URL.revokeObjectURL(offlineMediaUrlRef.current);
+      offlineMediaUrlRef.current = objUrl;
+      setOfflineMediaUrl(objUrl);
+    }).catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentMediaIndex, isIdle, mediaList]);
+
   useEffect(() => {
     if (!isIdle || mediaList.length <= 1) return;
     const current = mediaList[currentMediaIndex];
@@ -700,8 +1210,13 @@ export default function TerminalPage() {
   }, []);
 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const returnTimerRef = useRef<number | null>(null);
 
   const clearConsult = useCallback(() => {
+    if (returnTimerRef.current) {
+      window.clearTimeout(returnTimerRef.current);
+      returnTimerRef.current = null;
+    }
     setProduto(null);
     setSugestoes(null);
     setEan("");
@@ -713,11 +1228,39 @@ export default function TerminalPage() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!produto) return;
-    const timer = window.setTimeout(() => clearConsult(), 8000);
-    return () => window.clearTimeout(timer);
-  }, [produto, clearConsult]);
+  const armReturnToIdle = useCallback(
+    (audio: HTMLAudioElement | null, fallbackMs = 8000) => {
+      if (returnTimerRef.current) {
+        window.clearTimeout(returnTimerRef.current);
+        returnTimerRef.current = null;
+      }
+
+      if (!audio) {
+        returnTimerRef.current = window.setTimeout(() => clearConsult(), fallbackMs);
+        return;
+      }
+
+      const scheduleAfterDone = () => {
+        if (returnTimerRef.current) window.clearTimeout(returnTimerRef.current);
+        returnTimerRef.current = window.setTimeout(() => clearConsult(), 3000);
+      };
+
+      const safety = window.setTimeout(() => clearConsult(), 25000);
+      const done = () => {
+        window.clearTimeout(safety);
+        scheduleAfterDone();
+      };
+
+      if (audio.ended) {
+        done();
+        return;
+      }
+
+      audio.addEventListener("ended", done, { once: true });
+      audio.addEventListener("error", done, { once: true });
+    },
+    [clearConsult],
+  );
 
   const speakPrice = useCallback(async (preco: number, precoLista?: number, currentTipoSugestao?: string) => {
     try {
@@ -742,11 +1285,70 @@ export default function TerminalPage() {
         const audio = new Audio(data.audio_url);
         currentAudioRef.current = audio;
         audio.play().catch(() => undefined);
+        return audio;
       }
     } catch (e) {
       console.error("TTS error:", e);
     }
+    return null;
   }, []);
+
+  const consultarPreco = useCallback(async (eanDigits: string): Promise<Produto> => {
+    const ctx = await resolveEmpresaContext().catch(() => null);
+    if (!ctx) throw new Error("Configuração incompleta. Revise código da empresa e número da loja.");
+
+    const codigoEmpresa = ctx.codigo_empresa;
+    const loja = ctx.numero_loja;
+    const ean = eanDigits.replace(/\D/g, "");
+    if (!ean) throw new Error("EAN inválido.");
+
+    const fetchFromApi = async (): Promise<Produto> => {
+      if (!navigator.onLine) throw new Error("Sem internet para consultar.");
+      const res = await fetch(`${BASE_URL}/api-consulta-preco`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codigo_empresa: codigoEmpresa, numero_loja: loja, ean }),
+      });
+      const payload = (await res.json().catch(() => null)) as { produto?: unknown; error?: string } | null;
+      if (!res.ok) throw new Error(payload?.error || `Erro ao consultar (${res.status})`);
+      const prod = asRecord(payload?.produto);
+      if (!prod) throw new Error("Resposta inválida ao consultar preço.");
+
+      const preco = parseNumber(prod.preco);
+      const precoLista = parseNumber(prod.preco_lista);
+
+      return {
+        ean: String(prod.ean ?? ean).replace(/\D/g, "") || ean,
+        nome: String(prod.nome ?? "Produto"),
+        preco: preco ?? undefined,
+        preco_lista: precoLista ?? undefined,
+        imagem_url_vtex: typeof prod.imagem_url_vtex === "string" ? prod.imagem_url_vtex : undefined,
+        disponivel: true,
+      };
+    };
+
+    const ckey = cacheKeyForPreco(codigoEmpresa, loja, ean);
+    const cached = await cacheGetJson<PrecoConsultaCache>(ckey);
+    if (cached && cached.v === 1 && cached.produto?.ean) {
+      if (navigator.onLine) {
+        void (async () => {
+          try {
+            const fresh = await fetchFromApi();
+            await cacheSetJson(ckey, { v: 1, codigo_empresa: codigoEmpresa, numero_loja: loja, ean, updated_at: new Date().toISOString(), produto: fresh });
+          } catch {
+            return;
+          }
+        })();
+      }
+      return cached.produto;
+    }
+
+    if (!navigator.onLine) throw new Error("Sem internet e sem cache para este produto.");
+    const produto = await fetchFromApi();
+
+    await cacheSetJson(ckey, { v: 1, codigo_empresa: codigoEmpresa, numero_loja: loja, ean, updated_at: new Date().toISOString(), produto });
+    return produto;
+  }, [resolveEmpresaContext]);
 
   const consultar = async (code?: string) => {
     const searchEan = (code || ean).replace(/\D/g, "").trim();
@@ -755,49 +1357,172 @@ export default function TerminalPage() {
     if (beepEnabled) playBeep();
     setLoading(true); setError(null); setProduto(null); setSugestoes(null);
     setTheme(null);
+    if (returnTimerRef.current) {
+      window.clearTimeout(returnTimerRef.current);
+      returnTimerRef.current = null;
+    }
 
     try {
-      const prodRes = await fetch(`${BASE_URL}/api-produtos?ean=${searchEan}`);
-      if (!prodRes.ok) {
-        setError(`Produto não encontrado (${searchEan})`);
-        if (ttsEnabled) {
-          fetch(`${BASE_URL}/tts-audio?tipo=indisponivel`)
-            .then(r => r.json())
-            .then(d => { if (d.audio_url) { const a = new Audio(d.audio_url); currentAudioRef.current = a; a.play().catch(() => undefined); } })
-            .catch(() => undefined);
+      const cached = produtosByEanRef.current[searchEan];
+      if (cached) {
+        setProduto(cached);
+        terminalEanChannelRef.current
+          ?.send({
+            type: "broadcast",
+            event: "consulted",
+            payload: { ean: searchEan, ts: Date.now(), ok: true, cache: true },
+          })
+          .catch(() => undefined);
+
+        if (ttsEnabled && cached.preco) {
+          const audio = await speakPrice(cached.preco, cached.preco_lista, tipoSugestao);
+          armReturnToIdle(audio, 8000);
+        } else {
+          armReturnToIdle(null, 8000);
         }
+
+        if (corAutoEnabled && cached.imagem_url_vtex) {
+          generateThemeFromImage(cached.imagem_url_vtex).then(t => setTheme(t));
+        }
+
         setLoading(false);
         return;
       }
-      const prodData = await prodRes.json();
-      const prod = prodData.produto;
+      const prod = await consultarPreco(searchEan);
+      produtosByEanRef.current[searchEan] = prod;
       setProduto(prod);
+      terminalEanChannelRef.current
+        ?.send({
+          type: "broadcast",
+          event: "consulted",
+          payload: { ean: searchEan, ts: Date.now(), ok: true },
+        })
+        .catch(() => undefined);
 
-      if (ttsEnabled && prod.preco) speakPrice(prod.preco, prod.preco_lista, tipoSugestao);
+      if (ttsEnabled && prod.preco) {
+        const audio = await speakPrice(prod.preco, prod.preco_lista, tipoSugestao);
+        armReturnToIdle(audio, 8000);
+      } else {
+        armReturnToIdle(null, 8000);
+      }
 
       if (corAutoEnabled && prod.imagem_url_vtex) {
         generateThemeFromImage(prod.imagem_url_vtex).then(t => setTheme(t));
       }
 
-      fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=${maxSugestoes || 3}`)
-        .then(r => r.json()).then(d => setSugestoes(d.sugestoes)).catch(() => undefined);
+      if ((maxSugestoes ?? 0) > 0) {
+        fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=${maxSugestoes || 3}`)
+          .then(r => r.json())
+          .then((d: unknown) => {
+            const shaped = d as { sugestoes?: Sugestoes } | Sugestoes;
+            const hasWrapper = (shaped as { sugestoes?: Sugestoes }).sugestoes !== undefined;
+            const next: Sugestoes = hasWrapper
+              ? (shaped as { sugestoes: Sugestoes }).sugestoes!
+              : (shaped as Sugestoes);
+            setSugestoes(next);
+          })
+          .catch(() => undefined);
+      } else {
+        setSugestoes(null);
+      }
 
       setLoading(false);
     } catch {
       setError("Erro ao consultar produto");
+      terminalEanChannelRef.current
+        ?.send({
+          type: "broadcast",
+          event: "consulted",
+          payload: { ean: searchEan, ts: Date.now(), ok: false },
+        })
+        .catch(() => undefined);
       setLoading(false);
     }
   };
 
-  const activateDeviceRef = useRef(activateDevice);
-  activateDeviceRef.current = activateDevice;
+  const wizardNext = useCallback(async () => {
+    setWizardError(null);
+    if (wizardStep === 0) {
+      const code = normalizeEmpresaCode(wizardEmpresaCode);
+      if (!isValidEmpresaCode(code)) {
+        setWizardError("Informe o código da empresa no formato ABC123.");
+        return;
+      }
+      setActivatingDevice(true);
+      try {
+        let empresaId: string | null = null;
+        if (!empresaId) {
+          const { data, error } = await supabase
+            .from("empresas")
+            .select("id, ativo")
+            .eq("codigo_vinculo", code)
+            .maybeSingle();
+          if (error) throw error;
+          if (!data) throw new Error("Código inválido");
+          if (data.ativo === false) throw new Error("Empresa inativa");
+          empresaId = data.id;
+        }
+
+        if (!empresaId) throw new Error("Código inválido");
+        setWizardEmpresaId(empresaId);
+        setWizardEmpresaCode(code);
+        setWizardStep(1);
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        const isNetwork =
+          e instanceof TypeError &&
+          (message.toLowerCase().includes("failed to fetch") || message.toLowerCase().includes("network"));
+        setWizardError(isNetwork ? "Não foi possível validar (erro de rede). Verifique a internet do terminal." : (message || "Código inválido"));
+      } finally {
+        setActivatingDevice(false);
+      }
+      return;
+    }
+
+    if (wizardStep === 1) {
+      if (!wizardGrupoId) {
+        setWizardError("Selecione um grupo para este dispositivo.");
+        return;
+      }
+      setWizardStep(2);
+      return;
+    }
+
+    if (wizardStep === 2) {
+      const name = sanitizeTerminalDeviceName(wizardDeviceName);
+      if (!name) {
+        setWizardError("Informe um nome/apelido para o dispositivo.");
+        return;
+      }
+      setWizardDeviceName(name);
+      setWizardStep(3);
+      return;
+    }
+
+    const loja = wizardLojaNumero.replace(/\s+/g, " ").trim();
+    if (!loja) {
+      setWizardError("Informe o número da loja.");
+      return;
+    }
+    setWizardLojaNumero(loja);
+    await activateDeviceWizard();
+  }, [activateDeviceWizard, wizardDeviceName, wizardEmpresaCode, wizardGrupoId, wizardLojaNumero, wizardStep]);
+
+  const wizardPrev = useCallback(() => {
+    setWizardError(null);
+    setWizardStep((s) => (s > 0 ? ((s - 1) as 0 | 1 | 2 | 3) : s));
+  }, []);
+
+  const wizardNextRef = useRef(wizardNext);
+  wizardNextRef.current = wizardNext;
 
   const consultarRef = useRef(consultar);
   consultarRef.current = consultar;
 
   useEffect(() => {
     const focus = () => {
-      hiddenInputRef.current?.focus({ preventScroll: true });
+      const target = deviceActivated ? scanInputRef.current : hiddenInputRef.current;
+      target?.focus({ preventScroll: true });
     };
 
     const interval = window.setInterval(focus, 200);
@@ -817,14 +1542,119 @@ export default function TerminalPage() {
       window.removeEventListener("touchstart", onPointerDown, true);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [deviceActivated]);
+
+  const commitScan = (raw: string) => {
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) return;
+    scanBufferRef.current = "";
+    scanLastKeyTsRef.current = 0;
+    void consultarRef.current(digits);
+    setEan("");
+  };
+
+  const onScanKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    const nowTs = Date.now();
+    if (nowTs - scanLastKeyTsRef.current > 250) scanBufferRef.current = "";
+    scanLastKeyTsRef.current = nowTs;
+
+    if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      const raw = scanBufferRef.current || e.currentTarget.value || ean;
+      commitScan(raw);
+      e.currentTarget.value = "";
+      return;
+    }
+
+    if (e.key.length === 1 && /\d/.test(e.key)) {
+      scanBufferRef.current += e.key;
+      return;
+    }
+  };
+
+  const onScanChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    const hasLineBreak = /[\r\n]/.test(raw);
+    const digits = raw.replace(/\D/g, "");
+
+    if (hasLineBreak) {
+      e.target.value = "";
+      setEan(digits);
+      if (digits) commitScan(digits);
+      setEan("");
+      return;
+    }
+
+    setEan(digits);
+  };
+
+  useEffect(() => {
+    if (!deviceActivated) return;
+
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      const active = document.activeElement as HTMLElement | null;
+      const isTypingField =
+        !!active &&
+        (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || (active as HTMLElement).isContentEditable) &&
+        active !== scanInputRef.current &&
+        active !== hiddenInputRef.current;
+      if (isTypingField) return;
+
+      const nowTs = Date.now();
+      if (nowTs - scanLastKeyTsRef.current > 250) scanBufferRef.current = "";
+      scanLastKeyTsRef.current = nowTs;
+
+      if (ev.key === "Enter" || ev.key === "Tab") {
+        if (!scanBufferRef.current) return;
+        ev.preventDefault();
+        commitScan(scanBufferRef.current);
+        return;
+      }
+
+      if (ev.key.length === 1 && /\d/.test(ev.key)) {
+        scanBufferRef.current += ev.key;
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [deviceActivated]);
+
+  const appendWizardKey = (k: string) => {
+    setWizardError(null);
+    if (wizardStep === 0) {
+      const cleaned = k.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+      if (!cleaned) return;
+      setWizardEmpresaCode((prev) => normalizeEmpresaCode(prev + cleaned));
+      return;
+    }
+    if (wizardStep === 2) {
+      setWizardDeviceName((prev) => sanitizeTerminalDeviceName(prev + k));
+      return;
+    }
+    if (wizardStep === 3) {
+      const cleaned = k.replace(/[^a-zA-Z0-9-]/g, "").toUpperCase();
+      if (!cleaned) return;
+      setWizardLojaNumero((prev) => (prev + cleaned).slice(0, 12));
+    }
+  };
+
+  const backspaceWizard = () => {
+    setWizardError(null);
+    if (wizardStep === 0) setWizardEmpresaCode((prev) => prev.slice(0, -1));
+    else if (wizardStep === 2) setWizardDeviceName((prev) => prev.slice(0, -1));
+    else if (wizardStep === 3) setWizardLojaNumero((prev) => prev.slice(0, -1));
+  };
 
   const onHiddenKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
     if (e.key === "Enter") {
       e.preventDefault();
-      if (!deviceActivated) void activateDeviceRef.current();
+      if (!deviceActivated) void wizardNextRef.current();
       else void consultarRef.current();
       return;
     }
@@ -832,8 +1662,7 @@ export default function TerminalPage() {
     if (e.key === "Backspace") {
       e.preventDefault();
       if (!deviceActivated) {
-        if (activationField === "codigo") setActivationCode((prev) => prev.slice(0, -1));
-        else setActivationDeviceName((prev) => prev.slice(0, -1));
+        backspaceWizard();
       }
       else setEan((prev) => prev.slice(0, -1));
       return;
@@ -842,28 +1671,20 @@ export default function TerminalPage() {
     if (e.key === "Escape") {
       e.preventDefault();
       if (!deviceActivated) {
-        if (activationField === "codigo") setActivationCode("");
-        else setActivationDeviceName("");
+        setWizardError(null);
+        if (wizardStep === 1) {
+          setWizardGrupoId(null);
+          setWizardGroupPath([]);
+        } else if (wizardStep === 0) {
+          setWizardEmpresaCode("");
+        } else if (wizardStep === 2) {
+          setWizardDeviceName("");
+        } else if (wizardStep === 3) {
+          setWizardLojaNumero("");
+        }
       }
       else clearConsult();
     }
-  };
-
-  const appendActivationKey = (k: string) => {
-    if (activationField === "codigo") {
-      const cleaned = k.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-      if (!cleaned) return;
-      setActivationError(null);
-      setActivationCode((prev) => (prev + cleaned).toUpperCase().slice(0, 12));
-      return;
-    }
-    const next = sanitizeDeviceName(activationDeviceName + k);
-    setActivationDeviceName(next);
-  };
-
-  const backspaceActivation = () => {
-    if (activationField === "codigo") setActivationCode((prev) => prev.slice(0, -1));
-    else setActivationDeviceName((prev) => prev.slice(0, -1));
   };
 
   const onHiddenChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -872,14 +1693,23 @@ export default function TerminalPage() {
     if (!raw) return;
 
     if (!deviceActivated) {
-      if (activationField === "codigo") {
+      setWizardError(null);
+      if (wizardStep === 0) {
         const cleaned = raw.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
         if (!cleaned) return;
-        setActivationError(null);
-        setActivationCode((prev) => (prev + cleaned).toUpperCase().slice(0, 12));
+        setWizardEmpresaCode((prev) => normalizeEmpresaCode(prev + cleaned));
         return;
       }
-      setActivationDeviceName((prev) => sanitizeDeviceName(prev + raw));
+      if (wizardStep === 2) {
+        setWizardDeviceName((prev) => sanitizeTerminalDeviceName(prev + raw));
+        return;
+      }
+      if (wizardStep === 3) {
+        const cleaned = raw.replace(/[^a-zA-Z0-9-]/g, "").toUpperCase();
+        if (!cleaned) return;
+        setWizardLojaNumero((prev) => (prev + cleaned).slice(0, 12));
+        return;
+      }
       return;
     }
 
@@ -892,15 +1722,23 @@ export default function TerminalPage() {
     const id = localStorage.getItem("mupa_device_id");
     if (!deviceActivated || !id) return;
 
-    const inputRemotoRef = { current: false };
+    const inputRemotoRef = { current: true };
     void supabase
       .from("dispositivos")
-      .select("input_remoto_ativo")
+      .select("input_remoto_ativo, config_override")
       .eq("id", id)
       .single()
-      .then(({ data }) => {
-        inputRemotoRef.current = !!data?.input_remoto_ativo;
-      });
+      .then(({ data, error }) => {
+        if (error) return;
+        if (typeof data?.input_remoto_ativo === "boolean") inputRemotoRef.current = data.input_remoto_ativo;
+        const overrides = (data as { config_override?: unknown } | null)?.config_override;
+        if (overrides && typeof overrides === "object") {
+          for (const [k, v] of Object.entries(overrides as Record<string, unknown>)) {
+            applyConfigValue(k, v);
+          }
+        }
+      })
+      .catch(() => undefined);
 
     const rowCh = supabase
       .channel(`dispositivos-row-${id}`)
@@ -908,8 +1746,14 @@ export default function TerminalPage() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "dispositivos", filter: `id=eq.${id}` },
         (payload) => {
-          const n = payload.new as { input_remoto_ativo?: boolean };
+          const n = payload.new as { input_remoto_ativo?: boolean; config_override?: unknown };
           if (typeof n.input_remoto_ativo === "boolean") inputRemotoRef.current = n.input_remoto_ativo;
+          const overrides = n.config_override;
+          if (overrides && typeof overrides === "object") {
+            for (const [k, v] of Object.entries(overrides as Record<string, unknown>)) {
+              applyConfigValue(k, v);
+            }
+          }
         },
       )
       .subscribe();
@@ -927,11 +1771,14 @@ export default function TerminalPage() {
       })
       .subscribe();
 
+    terminalEanChannelRef.current = eanCh;
+
     return () => {
+      terminalEanChannelRef.current = null;
       supabase.removeChannel(rowCh);
       supabase.removeChannel(eanCh);
     };
-  }, [deviceActivated]);
+  }, [applyConfigValue, deviceActivated]);
 
   const formatPrice = (value: number) => {
     const [reais, centavos] = value.toFixed(2).split(".");
@@ -948,7 +1795,10 @@ export default function TerminalPage() {
       perfil: sugestoes.perfil,
       todas: [...sugestoes.complementares, ...sugestoes.mesma_marca, ...sugestoes.perfil],
     };
-    return (map[tipoSugestao] || map.todas).slice(0, maxSugestoes);
+    const pool = map[tipoSugestao] || map.todas;
+    const available = pool.length;
+    const limit = maxSugestoes && maxSugestoes > 0 ? maxSugestoes : Math.min(3, available);
+    return pool.slice(0, limit);
   };
 
   const allSugestoes = getSugestoes();
@@ -963,9 +1813,31 @@ export default function TerminalPage() {
   const vh = viewport.height;
   const isLandscape = orientation === "landscape";
   const minDim = Math.min(vw, vh);
-  const padding = Math.round(minDim * 0.03);
-  const gap = Math.round(minDim * 0.024);
+  const outerMargin = Math.round(clamp(0, layoutPadding, 40));
+  const padding = outerMargin;
+  const gapAuto = layout === "compacto" ? Math.round(minDim * 0.018) : Math.round(minDim * 0.024);
+  const gap = layoutGap > 0 ? Math.round(clamp(6, layoutGap, 80)) : gapAuto;
   const footerSpace = Math.round(clamp(44, vh * 0.085, 96));
+
+  const wizardGroupsById = useMemo(() => {
+    return new Map(wizardGroups.map((g) => [g.id, g]));
+  }, [wizardGroups]);
+
+  const wizardChildrenByParent = useMemo(() => {
+    const m = new Map<string | null, Array<{ id: string; nome: string; parent_id: string | null }>>();
+    for (const g of wizardGroups) {
+      const key = g.parent_id ?? null;
+      const list = m.get(key) ?? [];
+      list.push(g);
+      m.set(key, list);
+    }
+    for (const [, list] of m) list.sort((a, b) => a.nome.localeCompare(b.nome));
+    return m;
+  }, [wizardGroups]);
+
+  const wizardBrowseParentId = wizardGroupPath.length ? wizardGroupPath[wizardGroupPath.length - 1] : null;
+  const wizardCurrentGroups = wizardChildrenByParent.get(wizardBrowseParentId) ?? [];
+  const wizardSelectedGroup = wizardGrupoId ? wizardGroupsById.get(wizardGrupoId) ?? null : null;
 
   // ── Activation Screen ──
   if (!deviceActivated) {
@@ -985,77 +1857,430 @@ export default function TerminalPage() {
           style={{ position: "absolute", opacity: 0, width: 1, height: 1, left: -10, top: -10 }}
           {...suppressNativeKeyboardProps}
         />
-        <div className="flex flex-1 items-center justify-center p-4 pb-2">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
-            className="flex flex-col items-center gap-8 p-12 rounded-3xl w-full max-w-lg"
-            style={{ background: "rgba(255,255,255,0.05)", backdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.1)", maxWidth: 480 }}
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                <Barcode className="w-7 h-7 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-white">Mupa Terminal</h1>
-                <p className="text-sm text-white/50">Ativação de Dispositivo</p>
-              </div>
+        {isLandscape ? (
+          <div className="flex flex-1 w-full gap-2 p-2">
+            <div className="w-[35%] flex items-start justify-center">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.5 }}
+                className="flex flex-col items-center rounded-3xl w-full gap-3 p-5"
+                style={{ background: "rgba(255,255,255,0.05)", backdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+            <div className="text-center">
+              <h1 className={`${isLandscape ? "text-lg" : "text-xl"} font-bold text-white leading-tight`}>Mupa</h1>
+              <p className={`${isLandscape ? "text-[11px]" : "text-xs"} text-white/50`}>Configuração do Terminal</p>
             </div>
 
-            <p className="text-white/70 text-center text-sm leading-relaxed">
-              Digite o código da empresa para vincular este terminal ao cliente correto.
-            </p>
+            <div className="text-[10px] text-white/50 font-semibold tracking-wider uppercase">
+              Passo {wizardStep + 1} de 4
+            </div>
 
-            <div className="w-full space-y-3">
-              <div className="grid gap-3">
-                <button
-                  type="button"
-                  onClick={() => setActivationField("nome")}
-                  className="w-full text-left px-4 py-3 rounded-xl border bg-white/10 text-white border-white/20 transition-colors"
-                  style={{ borderColor: activationField === "nome" ? "rgba(96,165,250,0.9)" : "rgba(255,255,255,0.2)" }}
-                >
-                  <div className="text-[11px] text-white/50 font-semibold tracking-wider uppercase">Nome do terminal</div>
-                  <div className="text-lg font-semibold mt-1">{activationDeviceName || "Terminal"}</div>
-                </button>
+            <div className={`w-full ${isLandscape ? "space-y-2" : "space-y-3"}`}>
+              {wizardStep === 0 && (
+                <div className="space-y-2">
+                  <p className={`${isLandscape ? "text-[13px]" : "text-sm"} text-white/70 text-center leading-relaxed`}>
+                    Digite o código da empresa.
+                  </p>
+                  <button
+                    type="button"
+                    className={`w-full text-center font-mono ${isLandscape ? "text-xl tracking-[0.24em] py-3" : "text-2xl tracking-[0.3em] py-4"} px-4 rounded-xl border bg-white/10 text-white border-white/20 transition-colors`}
+                    style={{ borderColor: isValidEmpresaCode(normalizeEmpresaCode(wizardEmpresaCode)) ? "rgba(96,165,250,0.9)" : "rgba(255,255,255,0.2)" }}
+                  >
+                    {normalizeEmpresaCode(wizardEmpresaCode) || "ABC123"}
+                  </button>
+                  <p className="text-xs text-white/50 text-center">Formato: ABC123</p>
+                </div>
+              )}
 
-                <button
-                  type="button"
-                  onClick={() => setActivationField("codigo")}
-                  className="w-full text-center text-2xl font-mono tracking-[0.3em] px-4 py-4 rounded-xl border bg-white/10 text-white border-white/20 transition-colors"
-                  style={{ borderColor: activationField === "codigo" ? "rgba(96,165,250,0.9)" : "rgba(255,255,255,0.2)" }}
-                >
-                  {activationCode || "—"}
-                </button>
-              </div>
-              {activationError && (
+              {wizardStep === 1 && (
+                <div className="space-y-3">
+                  <p className={`${isLandscape ? "text-[13px]" : "text-sm"} text-white/70 text-center leading-relaxed`}>
+                    Selecione o grupo inicial do dispositivo.
+                  </p>
+
+                  <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-white/60">
+                    <button type="button" className="underline underline-offset-2" onClick={() => setWizardGroupPath([])}>
+                      Raiz
+                    </button>
+                    {wizardGroupPath.map((id, idx) => {
+                      const g = wizardGroupsById.get(id);
+                      const label = g?.nome ?? "Grupo";
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          className="underline underline-offset-2"
+                          onClick={() => setWizardGroupPath((prev) => prev.slice(0, idx + 1))}
+                        >
+                          / {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className={`${isLandscape ? "max-h-44" : "max-h-64"} overflow-auto rounded-xl border bg-white/10 border-white/20 p-2`}>
+                    {wizardCurrentGroups.length === 0 ? (
+                      <div className="text-white/60 text-sm text-center py-6">
+                        Nenhum grupo encontrado neste nível.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {wizardCurrentGroups.map((g) => {
+                          const children = wizardChildrenByParent.get(g.id) ?? [];
+                          const selected = wizardGrupoId === g.id;
+                          return (
+                            <div
+                              key={g.id}
+                              className="flex items-center gap-2 rounded-lg border px-3 py-2"
+                              style={{ borderColor: selected ? "rgba(96,165,250,0.9)" : "rgba(255,255,255,0.15)" }}
+                            >
+                              <button
+                                type="button"
+                                className="flex-1 text-left text-white"
+                                onClick={() => { setWizardError(null); setWizardGrupoId(g.id); }}
+                              >
+                                <div className="text-sm font-semibold">{g.nome}</div>
+                                <div className="text-[11px] text-white/50">{children.length ? `${children.length} subgrupos` : "Sem subgrupos"}</div>
+                              </button>
+                              {children.length > 0 && (
+                                <button
+                                  type="button"
+                                  className="px-3 py-2 rounded-lg border text-xs text-white bg-white/5"
+                                  style={{ borderColor: "rgba(255,255,255,0.15)" }}
+                                  onClick={() => setWizardGroupPath((prev) => [...prev, g.id])}
+                                >
+                                  Abrir
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-xs text-white/60 text-center">
+                    Selecionado: <span className="text-white/80 font-semibold">{wizardSelectedGroup?.nome ?? "—"}</span>
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 2 && (
+                <div className="space-y-2">
+                  <p className={`${isLandscape ? "text-[13px]" : "text-sm"} text-white/70 text-center leading-relaxed`}>
+                    Informe um nome/apelido para este dispositivo.
+                  </p>
+                  <button
+                    type="button"
+                    className="w-full text-left px-4 py-3 rounded-xl border bg-white/10 text-white border-white/20 transition-colors"
+                    style={{ borderColor: wizardDeviceName.trim() ? "rgba(96,165,250,0.9)" : "rgba(255,255,255,0.2)" }}
+                  >
+                    <div className="text-[11px] text-white/50 font-semibold tracking-wider uppercase">Nome / Apelido</div>
+                    <div className={`${isLandscape ? "text-base" : "text-lg"} font-semibold mt-1`}>{wizardDeviceName || "Ex: Caixa 01 - Frente"}</div>
+                  </button>
+                </div>
+              )}
+
+              {wizardStep === 3 && (
+                <div className="space-y-2">
+                  <p className={`${isLandscape ? "text-[13px]" : "text-sm"} text-white/70 text-center leading-relaxed`}>
+                    Informe o número da loja.
+                  </p>
+                  <button
+                    type="button"
+                    className={`w-full text-center font-mono ${isLandscape ? "text-xl tracking-[0.16em] py-3" : "text-2xl tracking-[0.2em] py-4"} px-4 rounded-xl border bg-white/10 text-white border-white/20 transition-colors`}
+                    style={{ borderColor: wizardLojaNumero.trim() ? "rgba(96,165,250,0.9)" : "rgba(255,255,255,0.2)" }}
+                  >
+                    {wizardLojaNumero.toUpperCase() || "—"}
+                  </button>
+                </div>
+              )}
+
+              {wizardError && (
                 <motion.p
                   initial={{ opacity: 0, y: -5 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="text-red-400 text-sm text-center"
                 >
-                  {activationError}
+                  {wizardError}
                 </motion.p>
               )}
+
+              <div className={`grid grid-cols-2 ${isLandscape ? "gap-2" : "gap-3"} pt-1`}>
+                <button
+                  type="button"
+                  onClick={wizardPrev}
+                  disabled={wizardStep === 0 || activatingDevice}
+                  className={`w-full ${isLandscape ? "py-2.5 text-sm" : "py-3"} rounded-xl font-semibold text-white bg-white/10 hover:bg-white/15 disabled:opacity-50 transition-all border border-white/20`}
+                >
+                  Voltar
+                </button>
+                <button
+                  type="button"
+                  onClick={wizardNext}
+                  disabled={
+                    activatingDevice ||
+                    (wizardStep === 0 && !isValidEmpresaCode(normalizeEmpresaCode(wizardEmpresaCode))) ||
+                    (wizardStep === 1 && !wizardGrupoId) ||
+                    (wizardStep === 2 && !sanitizeTerminalDeviceName(wizardDeviceName)) ||
+                    (wizardStep === 3 && !wizardLojaNumero.trim())
+                  }
+                  className={`w-full ${isLandscape ? "py-2.5 text-sm" : "py-3"} rounded-xl font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all`}
+                >
+                  {activatingDevice ? "Aguarde..." : wizardStep === 3 ? "Finalizar" : "Próximo"}
+                </button>
+              </div>
+            </div>
+              </motion.div>
+            </div>
+
+            {wizardStep !== 1 && (
+              <div className="w-[65%] flex px-1">
+                <VirtualKeyboard
+                  mode={wizardStep === 2 ? "full" : "activation"}
+                  onKey={appendWizardKey}
+                  onBackspace={backspaceWizard}
+                  onEnter={wizardNext}
+                  dark
+                  className="w-full h-full border-t-0 border-l p-2 shadow-none"
+                />
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-1 justify-center p-3 items-center">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.5 }}
+                className="flex flex-col items-center rounded-3xl w-full gap-4 p-6"
+                style={{ background: "rgba(255,255,255,0.05)", backdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.1)", width: "90%", maxWidth: 520 }}
+              >
+                <div className="text-center">
+                  <h1 className="text-xl font-bold text-white leading-tight">Mupa</h1>
+                  <p className="text-xs text-white/50">Configuração do Terminal</p>
+                </div>
+
+                <div className="text-[10px] text-white/50 font-semibold tracking-wider uppercase">
+                  Passo {wizardStep + 1} de 4
+                </div>
+
+                <div className="w-full space-y-3">
+                  {wizardStep === 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-white/70 text-center leading-relaxed">
+                        Digite o código da empresa.
+                      </p>
+                      <button
+                        type="button"
+                        className="w-full text-center text-2xl font-mono tracking-[0.3em] py-4 px-4 rounded-xl border bg-white/10 text-white border-white/20 transition-colors"
+                        style={{ borderColor: isValidEmpresaCode(normalizeEmpresaCode(wizardEmpresaCode)) ? "rgba(96,165,250,0.9)" : "rgba(255,255,255,0.2)" }}
+                      >
+                        {normalizeEmpresaCode(wizardEmpresaCode) || "ABC123"}
+                      </button>
+                      <p className="text-xs text-white/50 text-center">Formato: ABC123</p>
+                    </div>
+                  )}
+
+                  {wizardStep === 1 && (
+                    <div className="space-y-3">
+                      <p className="text-sm text-white/70 text-center leading-relaxed">
+                        Selecione o grupo inicial do dispositivo.
+                      </p>
+
+                      <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-white/60">
+                        <button type="button" className="underline underline-offset-2" onClick={() => setWizardGroupPath([])}>
+                          Raiz
+                        </button>
+                        {wizardGroupPath.map((id, idx) => {
+                          const g = wizardGroupsById.get(id);
+                          const label = g?.nome ?? "Grupo";
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              className="underline underline-offset-2"
+                              onClick={() => setWizardGroupPath((prev) => prev.slice(0, idx + 1))}
+                            >
+                              / {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="max-h-64 overflow-auto rounded-xl border bg-white/10 border-white/20 p-2">
+                        {wizardCurrentGroups.length === 0 ? (
+                          <div className="text-white/60 text-sm text-center py-6">
+                            Nenhum grupo encontrado neste nível.
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {wizardCurrentGroups.map((g) => {
+                              const children = wizardChildrenByParent.get(g.id) ?? [];
+                              const selected = wizardGrupoId === g.id;
+                              return (
+                                <div
+                                  key={g.id}
+                                  className="flex items-center gap-2 rounded-lg border px-3 py-2"
+                                  style={{ borderColor: selected ? "rgba(96,165,250,0.9)" : "rgba(255,255,255,0.15)" }}
+                                >
+                                  <button
+                                    type="button"
+                                    className="flex-1 text-left text-white"
+                                    onClick={() => { setWizardError(null); setWizardGrupoId(g.id); }}
+                                  >
+                                    <div className="text-sm font-semibold">{g.nome}</div>
+                                    <div className="text-[11px] text-white/50">{children.length ? `${children.length} subgrupos` : "Sem subgrupos"}</div>
+                                  </button>
+                                  {children.length > 0 && (
+                                    <button
+                                      type="button"
+                                      className="px-3 py-2 rounded-lg border text-xs text-white bg-white/5"
+                                      style={{ borderColor: "rgba(255,255,255,0.15)" }}
+                                      onClick={() => setWizardGroupPath((prev) => [...prev, g.id])}
+                                    >
+                                      Abrir
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="text-xs text-white/60 text-center">
+                        Selecionado: <span className="text-white/80 font-semibold">{wizardSelectedGroup?.nome ?? "—"}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {wizardStep === 2 && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-white/70 text-center leading-relaxed">
+                        Informe um nome/apelido para este dispositivo.
+                      </p>
+                      <button
+                        type="button"
+                        className="w-full text-left px-4 py-3 rounded-xl border bg-white/10 text-white border-white/20 transition-colors"
+                        style={{ borderColor: wizardDeviceName.trim() ? "rgba(96,165,250,0.9)" : "rgba(255,255,255,0.2)" }}
+                      >
+                        <div className="text-[11px] text-white/50 font-semibold tracking-wider uppercase">Nome / Apelido</div>
+                        <div className="text-lg font-semibold mt-1">{wizardDeviceName || "Ex: Caixa 01 - Frente"}</div>
+                      </button>
+                    </div>
+                  )}
+
+                  {wizardStep === 3 && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-white/70 text-center leading-relaxed">
+                        Informe o número da loja.
+                      </p>
+                      <button
+                        type="button"
+                        className="w-full text-center text-2xl font-mono tracking-[0.2em] py-4 px-4 rounded-xl border bg-white/10 text-white border-white/20 transition-colors"
+                        style={{ borderColor: wizardLojaNumero.trim() ? "rgba(96,165,250,0.9)" : "rgba(255,255,255,0.2)" }}
+                      >
+                        {wizardLojaNumero.toUpperCase() || "—"}
+                      </button>
+                    </div>
+                  )}
+
+                  {wizardError && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-red-400 text-sm text-center"
+                    >
+                      {wizardError}
+                    </motion.p>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={wizardPrev}
+                      disabled={wizardStep === 0 || activatingDevice}
+                      className="w-full py-3 rounded-xl font-semibold text-white bg-white/10 hover:bg-white/15 disabled:opacity-50 transition-all border border-white/20"
+                    >
+                      Voltar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={wizardNext}
+                      disabled={
+                        activatingDevice ||
+                        (wizardStep === 0 && !isValidEmpresaCode(normalizeEmpresaCode(wizardEmpresaCode))) ||
+                        (wizardStep === 1 && !wizardGrupoId) ||
+                        (wizardStep === 2 && !sanitizeTerminalDeviceName(wizardDeviceName)) ||
+                        (wizardStep === 3 && !wizardLojaNumero.trim())
+                      }
+                      className="w-full py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all"
+                    >
+                      {activatingDevice ? "Aguarde..." : wizardStep === 3 ? "Finalizar" : "Próximo"}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+
+            {wizardStep !== 1 && (
+              <VirtualKeyboard
+                mode={wizardStep === 2 ? "full" : "activation"}
+                onKey={appendWizardKey}
+                onBackspace={backspaceWizard}
+                onEnter={wizardNext}
+                dark
+              />
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  if (!precoConfigReady) {
+    return (
+      <div
+        ref={containerRef}
+        className="terminal-page flex min-h-[100dvh] flex-col items-center justify-center"
+        style={{ background: "linear-gradient(160deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)", cursor: "default" }}
+      >
+        <div className="w-full max-w-xl px-5">
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
+            <div className="text-center">
+              <div className="text-white text-lg font-semibold">Preparando consulta de preço</div>
+              <div className="mt-1 text-white/60 text-sm">
+                {precoConfigLoading ? "Aguarde..." : precoConfigError ? precoConfigError : "Carregando configuração da empresa"}
+              </div>
+              {precoConfigUpdatedAt ? (
+                <div className="mt-2 text-white/45 text-xs">
+                  Última atualização: {new Date(precoConfigUpdatedAt).toLocaleString("pt-BR")}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={activateDevice}
-                disabled={!activationCode.trim() || activatingDevice}
-                className="w-full py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all"
+                onClick={() => void ensureEmpresaPrecoConfigLoaded()}
+                disabled={precoConfigLoading}
+                className="w-full py-3 rounded-xl font-semibold text-white bg-white/10 hover:bg-white/15 disabled:opacity-50 transition-all border border-white/20"
               >
-                {activatingDevice ? "Ativando..." : "Ativar Terminal"}
+                Tentar novamente
+              </button>
+              <button
+                type="button"
+                onClick={resetToWizard}
+                className="w-full py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all"
+              >
+                Voltar ao wizard
               </button>
             </div>
-          </motion.div>
+          </div>
         </div>
-
-        <VirtualKeyboard
-          mode={activationField === "codigo" ? "activation" : "full"}
-          onKey={appendActivationKey}
-          onBackspace={backspaceActivation}
-          onEnter={activateDevice}
-          dark
-        />
       </div>
     );
   }
@@ -1067,12 +2292,14 @@ export default function TerminalPage() {
       style={{ background: bgGradient, cursor: "none", transition: transitionStyle }}
     >
       <input
-        ref={hiddenInputRef}
+        ref={scanInputRef}
         type="text"
+        inputMode="none"
         autoFocus
+        value={ean}
+        onKeyDown={onScanKeyDown}
+        onChange={onScanChange}
         aria-hidden="true"
-        onKeyDown={onHiddenKeyDown}
-        onChange={onHiddenChange}
         style={{ position: "absolute", opacity: 0, width: 1, height: 1, left: -10, top: -10 }}
         {...suppressNativeKeyboardProps}
       />
@@ -1144,6 +2371,9 @@ export default function TerminalPage() {
         {loading && (
           <motion.div className="terminal-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="terminal-spinner" />
+            <p className="mt-6 text-center text-xl font-semibold" style={{ color: t.textColor, opacity: 0.85 }}>
+              {loadingText}
+            </p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1166,6 +2396,7 @@ export default function TerminalPage() {
           <motion.div
               key={produto.ean}
               className="terminal-product-area"
+              style={{ width: "100%", maxWidth: "100%", padding: 0, margin: 0 }}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0, y: 20 }}
@@ -1176,15 +2407,34 @@ export default function TerminalPage() {
                 const { highlight, rest } = splitHighlight(cleanedName, 3);
                 const nameScale = fontNome / 24;
                 const priceScale = fontPreco / 72;
+                const layoutKey = layout || "classico";
+                const layoutParams = (() => {
+                  switch (layoutKey) {
+                    case "compacto":
+                      return { imageWidthLandscape: 0.34, imageHeightLandscape: 0.7, imageHeightPortrait: 0.32, priceBoost: 0.92, colsLandscape: 4, colsPortrait: 3 };
+                    case "cartaz":
+                      return { imageWidthLandscape: 0.5, imageHeightLandscape: 0.84, imageHeightPortrait: 0.54, priceBoost: 1.18, colsLandscape: 2, colsPortrait: 2 };
+                    case "vitrine":
+                      return { imageWidthLandscape: 0.46, imageHeightLandscape: 0.82, imageHeightPortrait: 0.5, priceBoost: 1.12, colsLandscape: 0, colsPortrait: 0 };
+                    case "painel":
+                      return { imageWidthLandscape: 0.38, imageHeightLandscape: 0.76, imageHeightPortrait: 0.4, priceBoost: 1.05, colsLandscape: 3, colsPortrait: 2 };
+                    case "minimalista":
+                      return { imageWidthLandscape: 0.36, imageHeightLandscape: 0.72, imageHeightPortrait: 0.34, priceBoost: 1.0, colsLandscape: 0, colsPortrait: 0 };
+                    default:
+                      return { imageWidthLandscape: 0.4, imageHeightLandscape: 0.76, imageHeightPortrait: 0.44, priceBoost: 1.0, colsLandscape: 3, colsPortrait: 3 };
+                  }
+                })();
                 const titleSize = clamp(35, Math.round(minDim * 0.052 * nameScale), 60);
                 const restSize = clamp(18, Math.round(titleSize * 0.58), 34);
                 const brandSize = clamp(12, Math.round(minDim * 0.018), 18);
-                const priceReaisSize = clamp(70, Math.round(minDim * 0.14 * priceScale), 150);
+                const priceReaisSize = clamp(70, Math.round(minDim * 0.14 * priceScale * layoutParams.priceBoost), 150);
                 const centsSize = Math.round(priceReaisSize * 0.42);
                 const containerRadius = Math.round(clamp(18, minDim * 0.03, 34));
-                const imagePanelWidth = isLandscape ? Math.round(vw * 0.4) : vw - padding * 2;
-                const imageMaxHeight = isLandscape ? Math.round(vh * 0.76) : Math.round(vh * 0.38);
-                const suggestionCols = isLandscape ? 3 : vw < 520 ? 2 : 3;
+                const imagePanelWidth = isLandscape ? Math.round(vw * layoutParams.imageWidthLandscape) : vw - padding * 2;
+                const imageMaxHeightByViewport = isLandscape ? Math.round(vh * layoutParams.imageHeightLandscape) : Math.round(vh * layoutParams.imageHeightPortrait);
+                const imageMaxHeight = Math.min(imageMaxHeightByViewport, imgSize || imageMaxHeightByViewport);
+                const suggestionColsRaw = isLandscape ? layoutParams.colsLandscape : vw < 520 ? 2 : layoutParams.colsPortrait;
+                const suggestionCols = suggestionColsRaw > 0 ? suggestionColsRaw : isLandscape ? 3 : 2;
                 const suggestionTitle =
                   tipoSugestao === "mesma_marca"
                     ? "Veja os produtos da mesma marca"
@@ -1198,7 +2448,12 @@ export default function TerminalPage() {
                     initial={{ opacity: 0, y: 18 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.35, delay: 0.25 }}
-                    style={{ marginTop: isLandscape ? gap : 0 }}
+                    style={{
+                      marginTop: isLandscape ? gap : 0,
+                      maxHeight: isLandscape ? undefined : Math.round(vh * 0.26),
+                      overflow: isLandscape ? undefined : "auto",
+                      paddingBottom: isLandscape ? 0 : 2,
+                    }}
                   >
                     <motion.h2
                       className="terminal-suggestions-title"
@@ -1255,6 +2510,105 @@ export default function TerminalPage() {
                   </motion.div>
                 ) : null;
 
+                const suggestionsOverlayNode = allSugestoes.length > 0 ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: Math.round(vh * 0.2) }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: Math.round(vh * 0.2) }}
+                    transition={{ duration: 0.35, type: "spring", stiffness: 240, damping: 22 }}
+                    style={{
+                      position: "absolute",
+                      zIndex: 30,
+                      left: Math.round(clamp(0, suggestionsOverlayInset, 40)),
+                      right: Math.round(clamp(0, suggestionsOverlayInset, 40)),
+                      bottom: Math.round(clamp(0, suggestionsOverlayInset, 40)),
+                      maxHeight: Math.round(vh * (clamp(20, suggestionsOverlayMaxPct, 60) / 100)),
+                      borderRadius: Math.max(18, Math.round(containerRadius * 0.9)),
+                      overflow: "hidden",
+                      background: "rgba(255,255,255,0.94)",
+                      backdropFilter: "blur(10px)",
+                      boxShadow: `0 26px 90px ${t.priceContainerBg}38`,
+                      border: `2px solid ${t.priceContainerBg}55`,
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        background: `linear-gradient(180deg, ${t.priceContainerBg}18 0%, transparent 55%)`,
+                        pointerEvents: "none",
+                      }}
+                    />
+                    <div
+                      style={{
+                        height: 4,
+                        width: 44,
+                        borderRadius: 999,
+                        background: `${t.priceContainerBg}40`,
+                        alignSelf: "center",
+                        marginTop: 10,
+                        marginBottom: 10,
+                      }}
+                    />
+                    <div style={{ paddingLeft: 12, paddingRight: 12, paddingBottom: 8 }}>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 800,
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          color: "rgba(0,0,0,0.72)",
+                        }}
+                      >
+                        {suggestionTitle}
+                      </div>
+                    </div>
+                    <div style={{ padding: 12, paddingTop: 0, overflow: "auto" }}>
+                      <div
+                        className="terminal-suggestions-grid"
+                        style={{
+                          gridTemplateColumns: `repeat(${Math.min(3, Math.max(2, suggestionCols))}, minmax(0, 1fr))`,
+                          gap: Math.max(10, Math.round(gap * 0.8)),
+                        }}
+                      >
+                        {allSugestoes.map((s, i) => (
+                          <motion.button
+                            key={s.ean}
+                            className="terminal-suggestion-card"
+                            style={{
+                              background: "rgba(255,255,255,0.96)",
+                              borderColor: `${t.priceContainerBg}30`,
+                              boxShadow: `0 4px 16px ${t.priceContainerBg}10`,
+                            }}
+                            initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            transition={{ duration: 0.22, delay: 0.02 + i * 0.04 }}
+                            whileHover={{ scale: 1.03, y: -2 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => { setEan(s.ean); consultar(s.ean); }}
+                          >
+                            {s.imagem_url_vtex ? (
+                              <img src={s.imagem_url_vtex} alt={s.nome} className="terminal-suggestion-img" />
+                            ) : (
+                              <div className="terminal-suggestion-noimg"><Barcode className="w-6 h-6 text-black/15" /></div>
+                            )}
+                            <p className="terminal-suggestion-name" style={{ color: "#111" }}>
+                              {normalizeProductName(s.nome)}
+                            </p>
+                            {s.preco && (
+                              <p className="terminal-suggestion-price" style={{ color: t.priceTextColor, background: t.priceContainerGradient }}>
+                                R$ {s.preco.toFixed(2)}
+                              </p>
+                            )}
+                          </motion.button>
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : null;
+
                 const infoNode = (
                   <motion.div
                     initial={{ opacity: 0, y: 18 }}
@@ -1262,11 +2616,16 @@ export default function TerminalPage() {
                     transition={{ duration: 0.35, delay: 0.12 }}
                     style={{
                       width: "100%",
+                      height: isLandscape ? Math.round(vh - padding * 2) : undefined,
+                      flex: isLandscape ? undefined : "0 0 auto",
                       borderRadius: containerRadius,
                       background: t.containerGradient,
                       boxShadow: "0 10px 40px rgba(0,0,0,0.10)",
                       padding: Math.max(16, Math.round(gap * 1.1)),
                       overflow: "hidden",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: infoVerticalAlign === "center" ? "center" : "flex-start",
                     }}
                   >
                     <div
@@ -1292,11 +2651,31 @@ export default function TerminalPage() {
                           {rest}
                         </p>
                       )}
-                      {produto.marca && (
-                        <p className="terminal-desc-brand" style={{ fontSize: brandSize }}>
-                          {produto.marca}
-                        </p>
-                      )}
+                      {produto.marca && (() => {
+                        const bg = t.accent || t.priceContainerBg || (t.background?.[1] ?? "#c0392b");
+                        const m = /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/.exec(bg);
+                        let fg = "#ffffff";
+                        if (m) {
+                          const rr = parseInt(m[1], 10), gg = parseInt(m[2], 10), bb = parseInt(m[3], 10);
+                          fg = luminance({ r: rr, g: gg, b: bb }) > 0.22 ? "#1a1a1a" : "#ffffff";
+                        }
+                        return (
+                          <span
+                            className="terminal-desc-brand"
+                            style={{
+                              display: "inline-block",
+                              fontSize: brandSize,
+                              background: bg,
+                              color: fg,
+                              padding: "4px 10px",
+                              borderRadius: 999,
+                              boxShadow: "0 4px 14px rgba(0,0,0,0.08)",
+                            }}
+                          >
+                            {produto.marca}
+                          </span>
+                        );
+                      })()}
                     </div>
 
                     <motion.div
@@ -1342,22 +2721,30 @@ export default function TerminalPage() {
                   </motion.div>
                 );
 
+                const hasSuggestions = allSugestoes.length > 0;
                 const imageNode = (
                   <motion.div
-                    initial={{ opacity: 0, scale: 0.98 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ duration: 0.35, delay: 0.16 }}
+                    initial={{ opacity: 0, scale: 0.98, y: 0 }}
+                    animate={{ opacity: 1, scale: 1, y: hasSuggestions ? (isLandscape ? -12 : -8) : 0 }}
+                    transition={{ duration: 0.35, delay: 0.16, type: "spring", stiffness: 220, damping: 22 }}
                     style={{
                       width: imagePanelWidth,
-                      marginRight: isLandscape ? -30 : 0,
+                      marginRight: isLandscape && imageSide === "right" ? Math.round(clamp(0, imageMarginRight, 60)) : 0,
+                      marginLeft: isLandscape && imageSide === "left" ? Math.round(clamp(0, imageMarginRight, 60)) : 0,
                       background: "#ffffff",
                       borderRadius: containerRadius,
-                      boxShadow: "0 18px 60px rgba(0,0,0,0.12)",
+                      boxShadow: hasSuggestions
+                        ? `0 26px 80px ${t.priceContainerBg}26`
+                        : "0 18px 60px rgba(0,0,0,0.12)",
+                      position: "relative",
+                      overflow: "hidden",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
                       padding: Math.max(14, Math.round(gap)),
-                      minHeight: isLandscape ? Math.round(vh - footerSpace - padding * 2) : Math.round(vh * 0.34),
+                      height: isLandscape ? Math.round(vh - padding * 2) : undefined,
+                      flex: isLandscape ? undefined : "1 1 auto",
+                      minHeight: isLandscape ? Math.round(vh - padding * 2) : Math.round(clamp(220, vh * 0.44, 520)),
                     }}
                   >
                     {produto.imagem_url_vtex ? (
@@ -1376,10 +2763,15 @@ export default function TerminalPage() {
                         <Barcode className="w-20 h-20 text-black/15" />
                       </div>
                     )}
+                    {suggestionsOverlayNode}
                   </motion.div>
                 );
 
                 if (isLandscape) {
+                  const alignItems = landscapeAlign === "top" ? "flex-start" : "center";
+                  const content = imageSide === "left"
+                    ? (<>{imageNode}<div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>{infoNode}</div></>)
+                    : (<><div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>{infoNode}</div>{imageNode}</>);
                   return (
                     <div
                       style={{
@@ -1388,17 +2780,13 @@ export default function TerminalPage() {
                         paddingLeft: padding,
                         paddingRight: padding,
                         paddingTop: padding,
-                        paddingBottom: footerSpace + padding,
+                        paddingBottom: padding,
                         display: "flex",
                         gap,
-                        alignItems: "center",
+                        alignItems,
                       }}
                     >
-                      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                        {infoNode}
-                        {suggestionsNode}
-                      </div>
-                      {imageNode}
+                      {content}
                     </div>
                   );
                 }
@@ -1411,16 +2799,16 @@ export default function TerminalPage() {
                       paddingLeft: padding,
                       paddingRight: padding,
                       paddingTop: padding,
-                      paddingBottom: footerSpace + padding,
+                      paddingBottom: padding,
                       display: "flex",
                       flexDirection: "column",
                       gap,
-                      alignItems: "center",
+                      alignItems: "stretch",
+                      overflow: "hidden",
                     }}
                   >
                     {imageNode}
                     {infoNode}
-                    {suggestionsNode}
                   </div>
                 );
               })()}
@@ -1439,17 +2827,20 @@ export default function TerminalPage() {
                     transition={{ duration: 1.2, ease: "easeInOut" }}
                     style={{ pointerEvents: idx === currentMediaIndex ? "auto" : "none" }}
                   >
-                    {media.tipo === "imagem" ? (
-                      <img src={media.url} alt="" className="terminal-media-content" />
-                    ) : (
-                      <video src={media.url} className="terminal-media-content" autoPlay={idx === currentMediaIndex} muted playsInline
-                        onEnded={() => { if (idx === currentMediaIndex) setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length); }}
-                        ref={(el) => {
-                          if (!el) return;
-                          if (idx === currentMediaIndex) { el.play().catch(() => undefined); } else { el.pause(); el.currentTime = 0; }
-                        }}
-                      />
-                    )}
+                    {(() => {
+                      const src = idx === currentMediaIndex && offlineMediaUrl ? offlineMediaUrl : media.url;
+                      return media.tipo === "imagem" ? (
+                        <img src={src} alt="" className="terminal-media-content" />
+                      ) : (
+                        <video src={src} className="terminal-media-content" autoPlay={idx === currentMediaIndex} muted playsInline
+                          onEnded={() => { if (idx === currentMediaIndex) setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length); }}
+                          ref={(el) => {
+                            if (!el) return;
+                            if (idx === currentMediaIndex) { el.play().catch(() => undefined); } else { el.pause(); el.currentTime = 0; }
+                          }}
+                        />
+                      );
+                    })()}
                   </motion.div>
                 ))}
               </motion.div>
@@ -1464,9 +2855,24 @@ export default function TerminalPage() {
         )}
       </AnimatePresence>
 
-      <div className="terminal-footer-hint" style={{ color: t.textColor }}>
-        Consulte o preço aqui
-      </div>
+      {footerEnabled && !produto && (
+        <div className="terminal-footer-hint">
+          <div className="terminal-footer-inner">
+            <div className="terminal-footer-left">
+              {footerClockEnabled && (
+                <span className="terminal-footer-clock">
+                  {now.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })}{" "}
+                  {now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+            </div>
+            <div className="terminal-footer-center">
+              <span className="terminal-footer-text">Consulte o preço aqui</span>
+            </div>
+            <div className="terminal-footer-right" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

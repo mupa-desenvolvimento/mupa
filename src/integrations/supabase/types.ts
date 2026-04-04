@@ -43,10 +43,13 @@ export type Database = {
           ativado_em: string | null
           ativo: boolean
           codigo_ativacao: string
+          config_override: Json
           criado_em: string
           empresa_id: string | null
+          grupo_id: string | null
           id: string
           input_remoto_ativo: boolean
+          loja_numero: string | null
           nome: string
           ultimo_acesso: string | null
         }
@@ -54,10 +57,13 @@ export type Database = {
           ativado_em?: string | null
           ativo?: boolean
           codigo_ativacao?: string
+          config_override?: Json
           criado_em?: string
           empresa_id?: string | null
+          grupo_id?: string | null
           id?: string
           input_remoto_ativo?: boolean
+          loja_numero?: string | null
           nome?: string
           ultimo_acesso?: string | null
         }
@@ -65,10 +71,13 @@ export type Database = {
           ativado_em?: string | null
           ativo?: boolean
           codigo_ativacao?: string
+          config_override?: Json
           criado_em?: string
           empresa_id?: string | null
+          grupo_id?: string | null
           id?: string
           input_remoto_ativo?: boolean
+          loja_numero?: string | null
           nome?: string
           ultimo_acesso?: string | null
         }
@@ -78,6 +87,13 @@ export type Database = {
             columns: ["empresa_id"]
             isOneToOne: false
             referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispositivos_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "dispositivo_grupos"
             referencedColumns: ["id"]
           },
         ]
@@ -566,6 +582,117 @@ export type Database = {
         }
         Relationships: []
       }
+      terminal_playlists: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          criado_em: string
+          id: string
+          nome: string
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          criado_em?: string
+          id?: string
+          nome: string
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          criado_em?: string
+          id?: string
+          nome?: string
+        }
+        Relationships: []
+      }
+      terminal_playlist_items: {
+        Row: {
+          ativo: boolean
+          criado_em: string
+          duracao_segundos: number | null
+          id: string
+          media_id: string
+          ordem: number
+          playlist_id: string
+        }
+        Insert: {
+          ativo?: boolean
+          criado_em?: string
+          duracao_segundos?: number | null
+          id?: string
+          media_id: string
+          ordem?: number
+          playlist_id: string
+        }
+        Update: {
+          ativo?: boolean
+          criado_em?: string
+          duracao_segundos?: number | null
+          id?: string
+          media_id?: string
+          ordem?: number
+          playlist_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "terminal_playlist_items_media_id_fkey"
+            columns: ["media_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_media"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "terminal_playlist_items_playlist_id_fkey"
+            columns: ["playlist_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_playlists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dispositivo_grupos: {
+        Row: {
+          atualizado_em: string
+          criado_em: string
+          id: string
+          nome: string
+          parent_id: string | null
+          playlist_id: string | null
+        }
+        Insert: {
+          atualizado_em?: string
+          criado_em?: string
+          id?: string
+          nome: string
+          parent_id?: string | null
+          playlist_id?: string | null
+        }
+        Update: {
+          atualizado_em?: string
+          criado_em?: string
+          id?: string
+          nome?: string
+          parent_id?: string | null
+          playlist_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dispositivo_grupos_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "dispositivo_grupos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispositivo_grupos_playlist_id_fkey"
+            columns: ["playlist_id"]
+            isOneToOne: false
+            referencedRelation: "terminal_playlists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tts_cache: {
         Row: {
           cache_key: string
@@ -595,6 +722,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      activate_terminal_device: {
+        Args: {
+          p_codigo_empresa: string
+          p_device_id?: string | null
+          p_device_name?: string | null
+          p_grupo_id?: string | null
+          p_loja_numero?: string | null
+        }
+        Returns: Json
+      }
       generate_dispositivo_codigo: { Args: never; Returns: string }
       generate_empresa_codigo: { Args: never; Returns: string }
       random_base32_code: { Args: { len?: number }; Returns: string }
