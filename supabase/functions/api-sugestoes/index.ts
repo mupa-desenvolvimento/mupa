@@ -109,7 +109,7 @@ async function getCachedCategories(
 }
 
 async function setCachedCategories(
-  supabase: SupabaseClient, ean: string, tipo: string, chavePerfil: string | null, categorias: string[]
+  supabase: ReturnType<typeof createClient>, ean: string, tipo: string, chavePerfil: string | null, categorias: string[]
 ) {
   // Fire and forget - don't await to save time
   void supabase.from("sugestoes_cache").upsert(
