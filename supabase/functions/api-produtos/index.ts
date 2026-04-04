@@ -135,10 +135,10 @@ Deno.serve(async (req) => {
         .replace(/[^0-9,]/g, "")
         .split(",")
         .map(Number)
-        .filter(n => !isNaN(n) && n >= 0 && n < candidates.length)
+        .filter((n: number) => !isNaN(n) && n >= 0 && n < candidates.length)
         .slice(0, limit);
 
-      const aiResults = indices.map(i => candidates[i]);
+      const aiResults = indices.map((i: number) => candidates[i]);
 
       return new Response(
         JSON.stringify({ produtos: aiResults, match_type: "ai", total: aiResults.length }),
