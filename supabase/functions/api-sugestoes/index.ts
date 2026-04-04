@@ -82,7 +82,7 @@ function extractFallbackTerms(produto: Produto) {
 }
 
 async function getCachedCategories(
-  supabase: SupabaseClient, ean: string, tipo: string, chavePerfil: string | null
+  supabase: ReturnType<typeof createClient>, ean: string, tipo: string, chavePerfil: string | null
 ): Promise<string[] | null> {
   const query = supabase
     .from("sugestoes_cache")
@@ -109,7 +109,7 @@ async function getCachedCategories(
 }
 
 async function setCachedCategories(
-  supabase: SupabaseClient, ean: string, tipo: string, chavePerfil: string | null, categorias: string[]
+  supabase: ReturnType<typeof createClient>, ean: string, tipo: string, chavePerfil: string | null, categorias: string[]
 ) {
   // Fire and forget - don't await to save time
   void supabase.from("sugestoes_cache").upsert(
@@ -136,7 +136,7 @@ async function fetchAICategories(apiKey: string, systemMsg: string, prompt: stri
     .split(",").map((c: string) => c.trim().toLowerCase()).filter(Boolean);
 }
 
-async function searchProducts(supabase: SupabaseClient, categories: string[], excludeEans: Set<string>, limit: number) {
+async function searchProducts(supabase: ReturnType<typeof createClient>, categories: string[], excludeEans: Set<string>, limit: number) {
   // Run all category searches in parallel
   const sanitizedCategories = categories
     .map((cat) => sanitizeTerm(cat))

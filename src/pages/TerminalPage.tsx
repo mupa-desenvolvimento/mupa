@@ -772,8 +772,8 @@ export default function TerminalPage() {
       setLojaNumeroAtivo(lojaNumero);
       setDeviceEmpresa(dev.empresa_id ?? null);
       setDeviceActivated(true);
-      if (payload?.warnings?.length) {
-        setWizardError(payload.warnings.join(" "));
+      if ((payload as Record<string, unknown>)?.warnings && Array.isArray((payload as Record<string, unknown>).warnings)) {
+        setWizardError(((payload as Record<string, unknown>).warnings as string[]).join(" "));
       }
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
@@ -1737,8 +1737,9 @@ export default function TerminalPage() {
             applyConfigValue(k, v);
           }
         }
-      })
-      .catch(() => undefined);
+      });
+
+    
 
     const rowCh = supabase
       .channel(`dispositivos-row-${id}`)
