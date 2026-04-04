@@ -1737,8 +1737,9 @@ export default function TerminalPage() {
             applyConfigValue(k, v);
           }
         }
-      })
-      .catch(() => undefined);
+      });
+
+    void configPromise.then(() => {}).catch(() => undefined);
 
     const rowCh = supabase
       .channel(`dispositivos-row-${id}`)

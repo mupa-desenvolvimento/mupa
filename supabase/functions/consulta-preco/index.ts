@@ -149,8 +149,9 @@ async function getToken(
     .eq('empresa_id', config.empresa_id)
     .maybeSingle();
 
-  if (cached && new Date(cached.expira_em) > new Date()) {
-    return cached.token;
+  const cachedRow = cached as { token: string; expira_em: string } | null;
+  if (cachedRow && new Date(cachedRow.expira_em) > new Date()) {
+    return cachedRow.token;
   }
 
   // Fetch new token

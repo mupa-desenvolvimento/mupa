@@ -156,7 +156,7 @@ function DraggableLibraryThumb({
       media={media}
       selected={selected}
       onSelect={onSelect}
-      dnd={{ attributes, listeners, setNodeRef, isDragging }}
+      dnd={{ attributes: attributes as Record<string, unknown>, listeners, setNodeRef, isDragging }}
     />
   );
 }
