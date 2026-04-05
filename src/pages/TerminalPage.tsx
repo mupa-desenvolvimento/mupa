@@ -266,6 +266,74 @@ function parseNumber(value: unknown): number | null {
   return null;
 }
 
+function cleanImageUrl(raw: string | undefined) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  return s
+    .replace(/`/g, "")
+    .replace(/^"+|"+$/g, "")
+    .replace(/^'+|'+$/g, "")
+    .trim();
+}
+
+function getSupabaseFunctionHeaders() {
+  const key = String(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "").trim();
+  if (!key) return {};
+  return { apikey: key, Authorization: `Bearer ${key}` };
+}
+
+async function fetchJsonWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  let timeoutId: number | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      try {
+        controller?.abort();
+      } catch {
+        return;
+      }
+      const err = new Error("Timeout");
+      (err as { name: string }).name = "AbortError";
+      reject(err);
+    }, timeoutMs);
+  });
+  try {
+    const res = await Promise.race([
+      fetch(url, { ...init, signal: controller?.signal }),
+      timeoutPromise,
+    ]);
+    const json = await res.json().catch(() => null);
+    return { res, json };
+  } finally {
+    if (timeoutId != null) window.clearTimeout(timeoutId);
+  }
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  let timeoutId: number | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      try {
+        controller?.abort();
+      } catch {
+        return;
+      }
+      const err = new Error("Timeout");
+      (err as { name: string }).name = "AbortError";
+      reject(err);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      fetch(url, { ...init, signal: controller?.signal }),
+      timeoutPromise,
+    ]);
+  } finally {
+    if (timeoutId != null) window.clearTimeout(timeoutId);
+  }
+}
+
 // PERF: background scheduling helper (never blocks consult flow)
 function runInBackground(task: () => void) {
   const w = window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number };
@@ -596,12 +664,32 @@ async function generateThemeFromImage(imageUrl: string): Promise<ProductTheme> {
 }
 
 const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+const SUPABASE_FUNCTION_HEADERS = getSupabaseFunctionHeaders();
 
 export default function TerminalPage() {
   // ── Device activation state ──
   const [deviceActivated, setDeviceActivated] = useState<boolean>(() => {
     return !!localStorage.getItem("mupa_device_id");
   });
+  const [lastKnownDevice, setLastKnownDevice] = useState(() => {
+    const id = localStorage.getItem("mupa_last_device_id") || "";
+    const empresa_id = localStorage.getItem("mupa_last_empresa_id") || "";
+    const empresa_code = localStorage.getItem("mupa_last_empresa_code") || "";
+    const device_name = localStorage.getItem("mupa_last_device_name") || "";
+    const loja_numero = localStorage.getItem("mupa_last_loja_numero") || "";
+    const device_key = localStorage.getItem("mupa_last_device_key") || "";
+    return { id, empresa_id, empresa_code, device_name, loja_numero, device_key };
+  });
+  const [urlDeviceKey, setUrlDeviceKey] = useState(() => localStorage.getItem("mupa_device_key") || "");
+  const [detectedDevice, setDetectedDevice] = useState<{
+    id: string;
+    empresa_id: string;
+    empresa_code: string;
+    device_name: string;
+    grupo_id: string | null;
+    loja_numero: string;
+    device_key: string;
+  } | null>(null);
   const [wizardStep, setWizardStep] = useState<0 | 1 | 2 | 3>(0);
   const [wizardEmpresaCode, setWizardEmpresaCode] = useState("");
   const [wizardEmpresaId, setWizardEmpresaId] = useState<string | null>(null);
@@ -647,6 +735,110 @@ export default function TerminalPage() {
     setPrecoConfigUpdatedAt(null);
     produtosByEanRef.current = {};
   }, []);
+
+  const restoreLastKnownDevice = useCallback(() => {
+    const id = (lastKnownDevice.id || "").trim();
+    const empresa_id = (lastKnownDevice.empresa_id || "").trim();
+    const empresa_code = normalizeEmpresaCode(lastKnownDevice.empresa_code || "");
+    const device_name = sanitizeTerminalDeviceName(lastKnownDevice.device_name || "") || "Terminal";
+    const loja_numero = normalizeLojaNumero(lastKnownDevice.loja_numero || "");
+    const device_key = String(lastKnownDevice.device_key || "").trim();
+    if (!id || !empresa_code || !loja_numero) return;
+
+    localStorage.setItem("mupa_device_id", id);
+    localStorage.setItem("mupa_empresa_id", empresa_id);
+    localStorage.setItem("mupa_empresa_code", empresa_code);
+    localStorage.setItem("mupa_device_name", device_name);
+    localStorage.setItem("mupa_loja_numero", loja_numero);
+    if (device_key) localStorage.setItem("mupa_device_key", device_key);
+
+    setEmpresaCode(empresa_code);
+    setLojaNumeroAtivo(loja_numero);
+    setDeviceEmpresa(empresa_id || null);
+    setWizardDeviceName(device_name);
+    setWizardLojaNumero(loja_numero);
+    setDeviceActivated(true);
+  }, [lastKnownDevice]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get("device_id") || params.get("device_key") || "";
+    const normalized = raw.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+    if (!normalized) return;
+    localStorage.setItem("mupa_device_key", normalized);
+    setUrlDeviceKey(normalized);
+  }, []);
+
+  useEffect(() => {
+    if (deviceActivated) return;
+    const key = (urlDeviceKey || "").trim();
+    if (!key) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        type MaybeSingleResult = { data: unknown; error: { message?: string } | null };
+        type Query = {
+          select: (columns: string) => Query;
+          eq: (column: string, value: string) => Query;
+          maybeSingle: () => Promise<MaybeSingleResult>;
+        };
+        const sb = supabase as unknown as { from: (table: string) => Query };
+        let dev:
+          | { id: string; empresa_id: string | null; nome: string; grupo_id: string | null; loja_numero?: string | null }
+          | null = null;
+        {
+          const res = await sb
+            .from("dispositivos")
+            .select("id, empresa_id, nome, grupo_id, loja_numero")
+            .eq("device_key", key)
+            .maybeSingle();
+          if (res.error) {
+            const msg = res.error.message || "";
+            if (msg.includes("loja_numero") && msg.includes("column")) {
+              const res2 = await sb
+                .from("dispositivos")
+                .select("id, empresa_id, nome, grupo_id")
+                .eq("device_key", key)
+                .maybeSingle();
+              if (res2.error) throw res2.error;
+              dev = res2.data as typeof dev;
+            } else if (msg.includes("device_key") && msg.includes("column")) {
+              return;
+            } else {
+              throw res.error;
+            }
+          } else {
+            dev = res.data as typeof dev;
+          }
+        }
+        if (!dev?.id || !dev.empresa_id) return;
+        const { data: emp, error: empErr } = await sb
+          .from("empresas")
+          .select("codigo_vinculo")
+          .eq("id", dev.empresa_id)
+          .maybeSingle();
+        if (empErr) throw empErr;
+        const empresa_code = normalizeEmpresaCode((emp as { codigo_vinculo?: string | null } | null)?.codigo_vinculo ?? "");
+        const loja_numero = normalizeLojaNumero(String((dev as { loja_numero?: string | null }).loja_numero ?? ""));
+        if (!empresa_code || !loja_numero) return;
+        if (cancelled) return;
+        setDetectedDevice({
+          id: dev.id,
+          empresa_id: dev.empresa_id,
+          empresa_code,
+          device_name: sanitizeTerminalDeviceName(dev.nome) || "Terminal",
+          grupo_id: dev.grupo_id ?? null,
+          loja_numero,
+          device_key: key,
+        });
+      } catch {
+        return;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceActivated, urlDeviceKey]);
 
   const resolveEmpresaContext = useCallback(async (): Promise<{ codigo_empresa: string; numero_loja: string; empresa_id: string } | null> => {
     let code = empresaCode;
@@ -697,12 +889,12 @@ export default function TerminalPage() {
         throw new Error("Sem internet e sem cache da configuração de preço para esta empresa.");
       }
 
-      const res = await fetch(`${BASE_URL}/api-consulta-preco`, {
+      const { res, json } = await fetchJsonWithTimeout(`${BASE_URL}/api-consulta-preco`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...SUPABASE_FUNCTION_HEADERS, "Content-Type": "application/json" },
         body: JSON.stringify({ action: "status", codigo_empresa: ctx.codigo_empresa }),
-      });
-      const payload = (await res.json().catch(() => null)) as { ok?: boolean; has_config?: boolean; error?: string } | null;
+      }, 8000);
+      const payload = json as { ok?: boolean; has_config?: boolean; error?: string } | null;
       if (!res.ok) throw new Error(payload?.error || "Falha ao validar configuração de preço");
       if (!payload?.has_config) throw new Error("Configuração de consulta de preço não encontrada para esta empresa.");
 
@@ -711,7 +903,12 @@ export default function TerminalPage() {
       setPrecoConfigUpdatedAt(next.updated_at);
       setPrecoConfigReady(true);
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Erro ao carregar configuração de preço";
+      const message =
+        e instanceof Error && e.name === "AbortError"
+          ? "Sem resposta do servidor. Verifique internet e se as Edge Functions estão publicadas."
+          : e instanceof Error
+            ? e.message
+            : "Erro ao carregar configuração de preço";
       setPrecoConfigError(message);
       setPrecoConfigReady(false);
     } finally {
@@ -752,25 +949,35 @@ export default function TerminalPage() {
     void loadGroupsForWizard();
   }, [deviceActivated, loadGroupsForWizard]);
 
-  const activateDeviceWizard = useCallback(async () => {
-    const codigoEmpresa = normalizeEmpresaCode(wizardEmpresaCode);
-    const deviceName = sanitizeTerminalDeviceName(wizardDeviceName) || "Terminal";
-    const lojaNumero = wizardLojaNumero.replace(/\s+/g, " ").trim().toUpperCase();
+  const activateDeviceDirect = useCallback(async (args: {
+    codigoEmpresa: string;
+    deviceName: string;
+    grupoId: string | null;
+    lojaNumero: string;
+  }) => {
+    const codigoEmpresa = normalizeEmpresaCode(args.codigoEmpresa);
+    const deviceName = sanitizeTerminalDeviceName(args.deviceName) || "Terminal";
+    const lojaNumero = normalizeLojaNumero(args.lojaNumero);
+    const grupoId = args.grupoId;
 
     setActivatingDevice(true);
     setWizardError(null);
     try {
       const deviceId = localStorage.getItem("mupa_device_id");
-      const { data, error } = await supabase.rpc("activate_terminal_device", {
-        p_codigo_empresa: codigoEmpresa,
-        p_device_id: deviceId || null,
-        p_device_name: deviceName,
-        p_grupo_id: wizardGrupoId,
-        p_loja_numero: lojaNumero || null,
-      });
-      if (error) throw error;
-
-      const payload = data as unknown as { dispositivo?: { id: string; empresa_id: string | null; codigo_ativacao?: string | null } } | null;
+      const deviceKey = localStorage.getItem("mupa_device_key");
+      const { res, json } = await fetchJsonWithTimeout(`${BASE_URL}/api-ativar-dispositivo`, {
+        method: "POST",
+        headers: { ...SUPABASE_FUNCTION_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          codigo_empresa: codigoEmpresa,
+          device_id: deviceId || deviceKey || null,
+          device_name: deviceName,
+          grupo_id: grupoId,
+          loja_numero: lojaNumero || null,
+        }),
+      }, 12000);
+      const payload = json as { dispositivo?: { id: string; empresa_id: string | null; codigo_ativacao?: string | null }; warnings?: string[]; error?: string } | null;
+      if (!res.ok) throw new Error(payload?.error || "Erro ao ativar dispositivo");
       const dev = payload?.dispositivo;
       if (!dev?.id) throw new Error("Resposta inválida ao ativar dispositivo");
 
@@ -779,12 +986,21 @@ export default function TerminalPage() {
       localStorage.setItem("mupa_empresa_code", codigoEmpresa);
       localStorage.setItem("mupa_device_name", deviceName);
       localStorage.setItem("mupa_loja_numero", lojaNumero);
+      localStorage.setItem("mupa_last_device_id", dev.id);
+      localStorage.setItem("mupa_last_empresa_id", dev.empresa_id || "");
+      localStorage.setItem("mupa_last_empresa_code", codigoEmpresa);
+      localStorage.setItem("mupa_last_device_name", deviceName);
+      localStorage.setItem("mupa_last_loja_numero", lojaNumero);
+      localStorage.setItem("mupa_last_device_key", deviceKey || "");
+      setLastKnownDevice({ id: dev.id, empresa_id: dev.empresa_id || "", empresa_code: codigoEmpresa, device_name: deviceName, loja_numero: lojaNumero, device_key: deviceKey || "" });
+
       setEmpresaCode(codigoEmpresa);
       setLojaNumeroAtivo(lojaNumero);
       setDeviceEmpresa(dev.empresa_id ?? null);
       setDeviceActivated(true);
-      if ((payload as Record<string, unknown>)?.warnings && Array.isArray((payload as Record<string, unknown>).warnings)) {
-        setWizardError(((payload as Record<string, unknown>).warnings as string[]).join(" "));
+
+      if (Array.isArray(payload?.warnings) && payload!.warnings.length) {
+        setWizardError(payload!.warnings.join(" "));
       }
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
@@ -794,12 +1010,19 @@ export default function TerminalPage() {
       setWizardError(
         isNetwork
           ? "Não foi possível ativar (erro de rede). Verifique a internet do terminal."
-          : (message || "Erro ao ativar dispositivo")
+          : (message || "Erro ao ativar dispositivo"),
       );
     } finally {
       setActivatingDevice(false);
     }
-  }, [wizardEmpresaCode, wizardDeviceName, wizardGrupoId, wizardLojaNumero]);
+  }, []);
+
+  const activateDeviceWizard = useCallback(async () => {
+    const codigoEmpresa = normalizeEmpresaCode(wizardEmpresaCode);
+    const deviceName = sanitizeTerminalDeviceName(wizardDeviceName) || "Terminal";
+    const lojaNumero = normalizeLojaNumero(wizardLojaNumero);
+    await activateDeviceDirect({ codigoEmpresa, deviceName, grupoId: wizardGrupoId, lojaNumero });
+  }, [activateDeviceDirect, wizardEmpresaCode, wizardDeviceName, wizardGrupoId, wizardLojaNumero]);
 
   // Load empresa on mount if device is activated
   useEffect(() => {
@@ -1277,6 +1500,41 @@ export default function TerminalPage() {
     }
   }, []);
 
+  const clearTerminalCaches = useCallback(async (mode: "all" | "nobg" = "all") => {
+    try {
+      if ("caches" in window) {
+        await Promise.allSettled([
+          mode === "all" ? caches.delete("mupa-media-v1") : Promise.resolve(false),
+          caches.delete("mupa-nobg-v1"),
+        ]);
+      }
+    } catch {
+      return;
+    }
+
+    if (mode === "all") {
+      try {
+        indexedDB.deleteDatabase("mupa-cache");
+        cacheDbPromise = null;
+      } catch {
+        return;
+      }
+
+      try {
+        const keys = Object.keys(localStorage);
+        for (const k of keys) {
+          if (k.startsWith("mupa:preco_cache:v1:")) localStorage.removeItem(k);
+          if (k.startsWith("mupa:empresa_preco_config:v1:")) localStorage.removeItem(k);
+          if (k.startsWith("mupa:media_manifest:v1:")) localStorage.removeItem(k);
+        }
+      } catch {
+        return;
+      }
+
+      produtosByEanRef.current = {};
+    }
+  }, []);
+
   const armReturnToIdle = useCallback(
     (audio: HTMLAudioElement | null, fallbackMs = 8000) => {
       if (returnTimerRef.current) {
@@ -1348,12 +1606,12 @@ export default function TerminalPage() {
     if (!ean) throw new Error("EAN inválido.");
     if (!navigator.onLine) throw new Error("Sem internet para consultar.");
 
-    const res = await fetch(`${BASE_URL}/api-consulta-preco`, {
+    const { res, json } = await fetchJsonWithTimeout(`${BASE_URL}/api-consulta-preco`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...SUPABASE_FUNCTION_HEADERS, "Content-Type": "application/json" },
       body: JSON.stringify({ codigo_empresa: codigoEmpresa, numero_loja: numeroLoja, ean }),
-    });
-    const payload = (await res.json().catch(() => null)) as { produto?: unknown; error?: string } | null;
+    }, 8000);
+    const payload = json as { produto?: unknown; error?: string } | null;
     if (!res.ok) throw new Error(payload?.error || `Erro ao consultar (${res.status})`);
     const prod = asRecord(payload?.produto);
     if (!prod) throw new Error("Resposta inválida ao consultar preço.");
@@ -1363,7 +1621,7 @@ export default function TerminalPage() {
       nome: String(prod.nome ?? "Produto"),
       preco: parseNumber(prod.preco) ?? undefined,
       preco_lista: parseNumber(prod.preco_lista) ?? undefined,
-      imagem_url_vtex: typeof prod.imagem_url_vtex === "string" ? prod.imagem_url_vtex : undefined,
+      imagem_url_vtex: typeof prod.imagem_url_vtex === "string" ? cleanImageUrl(prod.imagem_url_vtex) : undefined,
       disponivel: true,
     };
   }, []);
@@ -1394,24 +1652,63 @@ export default function TerminalPage() {
     const img = ctx2d.getImageData(0, 0, w, h);
     const d = img.data;
 
-    const sample = (x: number, y: number) => {
-      const i = (y * w + x) * 4;
-      return { r: d[i], g: d[i + 1], b: d[i + 2] };
-    };
-    const corners = [sample(0, 0), sample(w - 1, 0), sample(0, h - 1), sample(w - 1, h - 1)];
-    const bg = {
-      r: Math.round(corners.reduce((a, c) => a + c.r, 0) / corners.length),
-      g: Math.round(corners.reduce((a, c) => a + c.g, 0) / corners.length),
-      b: Math.round(corners.reduce((a, c) => a + c.b, 0) / corners.length),
+    const idx = (x: number, y: number) => (y * w + x) * 4;
+    const isNearWhite = (r: number, g: number, b: number) => {
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      return (max >= 242 && (max - min) <= 22) || (lum >= 235 && (max - min) <= 14);
     };
 
-    const tol = 42;
-    for (let i = 0; i < d.length; i += 4) {
-      const dr = d[i] - bg.r;
-      const dg = d[i + 1] - bg.g;
-      const db = d[i + 2] - bg.b;
-      const dist = Math.sqrt(dr * dr + dg * dg + db * db);
-      if (dist < tol) d[i + 3] = 0;
+    const visited = new Uint8Array(w * h);
+    const queue = new Uint32Array(w * h);
+    let qh = 0;
+    let qt = 0;
+
+    const tryPush = (x: number, y: number) => {
+      const p = y * w + x;
+      if (visited[p]) return;
+      const i = idx(x, y);
+      const a = d[i + 3];
+      if (a === 0) return;
+      if (!isNearWhite(d[i], d[i + 1], d[i + 2])) return;
+      visited[p] = 1;
+      queue[qt++] = p;
+    };
+
+    for (let x = 0; x < w; x += 1) {
+      tryPush(x, 0);
+      tryPush(x, h - 1);
+    }
+    for (let y = 0; y < h; y += 1) {
+      tryPush(0, y);
+      tryPush(w - 1, y);
+    }
+
+    while (qh < qt) {
+      const p = queue[qh++];
+      const x = p % w;
+      const y = (p / w) | 0;
+      const i = p * 4;
+      d[i + 3] = 0;
+      if (x > 0) tryPush(x - 1, y);
+      if (x + 1 < w) tryPush(x + 1, y);
+      if (y > 0) tryPush(x, y - 1);
+      if (y + 1 < h) tryPush(x, y + 1);
+    }
+
+    for (let y = 1; y < h - 1; y += 1) {
+      for (let x = 1; x < w - 1; x += 1) {
+        const p = y * w + x;
+        const i = p * 4;
+        if (d[i + 3] === 0) continue;
+        if (!isNearWhite(d[i], d[i + 1], d[i + 2])) continue;
+        const left = d[(p - 1) * 4 + 3] === 0;
+        const right = d[(p + 1) * 4 + 3] === 0;
+        const up = d[(p - w) * 4 + 3] === 0;
+        const down = d[(p + w) * 4 + 3] === 0;
+        if (left || right || up || down) d[i + 3] = 0;
+      }
     }
 
     ctx2d.putImageData(img, 0, 0);
@@ -1422,7 +1719,7 @@ export default function TerminalPage() {
   // PERF: background task; caches PNG with transparency and updates current product without blocking consult.
   const processImageBackground = useCallback((p: Produto, codigoEmpresa: string, numeroLoja: string) => {
     const ean = p.ean.replace(/\D/g, "").trim();
-    const imgUrl = p.imagem_url_vtex;
+    const imgUrl = cleanImageUrl(p.imagem_url_vtex);
     if (!ean || !imgUrl) return;
     if (p.imagem_url_sem_fundo) return;
     const inFlightKey = `${codigoEmpresa}:${numeroLoja}:${ean}`;
@@ -1459,7 +1756,8 @@ export default function TerminalPage() {
             }
           }
 
-          const res = await fetch(imgUrl, { cache: "force-cache" });
+          const proxyUrl = `${BASE_URL}/api-image-proxy?url=${encodeURIComponent(imgUrl)}`;
+          const res = await fetchWithTimeout(proxyUrl, { headers: { ...SUPABASE_FUNCTION_HEADERS }, cache: "force-cache" }, 12000);
           if (!res.ok) return;
           const rawBlob = await res.blob();
           const outBlob = await _remove_bg_simple(rawBlob);
@@ -1480,11 +1778,11 @@ export default function TerminalPage() {
           };
 
           const png_base64 = await toBase64(outBlob);
-          const uploadRes = await fetch(`${BASE_URL}/api-produto-nobg`, {
+          const uploadRes = await fetchWithTimeout(`${BASE_URL}/api-produto-nobg`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { ...SUPABASE_FUNCTION_HEADERS, "Content-Type": "application/json" },
             body: JSON.stringify({ codigo_empresa: codigoEmpresa, numero_loja: numeroLoja, ean, png_base64 }),
-          }).catch(() => null);
+          }, 15000).catch(() => null);
           if (uploadRes && uploadRes.ok) {
             const data = (await uploadRes.json().catch(() => null)) as { url?: string } | null;
             const url = typeof data?.url === "string" ? data.url : storedUrl;
@@ -1714,9 +2012,37 @@ export default function TerminalPage() {
   useEffect(() => {
     if (!deviceActivated || !precoConfigReady) return;
     const scan = (raw: unknown) => {
-      const digits = String(raw ?? "").replace(/\D/g, "").trim();
-      if (!digits) return;
+      const text = String(raw ?? "").trim();
+      if (!text) return;
       focusScanInput();
+
+      const upper = text.toUpperCase();
+      if (upper.startsWith("MUPA:")) {
+        const cmd = upper.slice(5).trim();
+        if (cmd === "CLEAR_CACHE") {
+          void clearTerminalCaches("all").finally(() => window.setTimeout(() => window.location.reload(), 150));
+          return;
+        }
+        if (cmd === "CLEAR_NOBG") {
+          void clearTerminalCaches("nobg").finally(() => window.setTimeout(() => window.location.reload(), 150));
+          return;
+        }
+        if (cmd === "RESET_WIZARD") {
+          resetToWizard();
+          return;
+        }
+        if (cmd === "RELOAD") {
+          window.location.reload();
+          return;
+        }
+        if (cmd === "FOCUS") {
+          focusScanInput();
+          return;
+        }
+      }
+
+      const digits = text.replace(/\D/g, "").trim();
+      if (!digits) return;
       setEan(digits);
       void consultar(digits);
     };
@@ -1765,7 +2091,7 @@ export default function TerminalPage() {
       window.removeEventListener("message", onMessage);
       doc.removeEventListener("message", onMessage);
     };
-  }, [consultar, deviceActivated, focusScanInput, precoConfigReady]);
+  }, [clearTerminalCaches, consultar, deviceActivated, focusScanInput, precoConfigReady, resetToWizard]);
 
   const wizardNext = useCallback(async () => {
     setWizardError(null);
@@ -1871,14 +2197,42 @@ export default function TerminalPage() {
     };
   }, [deviceActivated]);
 
-  const commitScan = (raw: string) => {
-    const digits = raw.replace(/\D/g, "");
-    if (!digits) return;
+  const commitScan = useCallback((raw: string) => {
+    const text = String(raw ?? "").trim();
+    if (!text) return;
     scanBufferRef.current = "";
     scanLastKeyTsRef.current = 0;
+
+    const upper = text.toUpperCase();
+    if (upper.startsWith("MUPA:")) {
+      const cmd = upper.slice(5).trim();
+      if (cmd === "CLEAR_CACHE") {
+        void clearTerminalCaches("all").finally(() => window.setTimeout(() => window.location.reload(), 150));
+        return;
+      }
+      if (cmd === "CLEAR_NOBG") {
+        void clearTerminalCaches("nobg").finally(() => window.setTimeout(() => window.location.reload(), 150));
+        return;
+      }
+      if (cmd === "RESET_WIZARD") {
+        resetToWizard();
+        return;
+      }
+      if (cmd === "RELOAD") {
+        window.location.reload();
+        return;
+      }
+      if (cmd === "FOCUS") {
+        focusScanInput();
+        return;
+      }
+    }
+
+    const digits = text.replace(/\D/g, "");
+    if (!digits) return;
     void consultarRef.current(digits);
     setEan("");
-  };
+  }, [clearTerminalCaches, focusScanInput, resetToWizard]);
 
   const onScanKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1895,7 +2249,7 @@ export default function TerminalPage() {
       return;
     }
 
-    if (e.key.length === 1 && /\d/.test(e.key)) {
+    if (e.key.length === 1 && /[0-9A-Za-z:_-]/.test(e.key)) {
       scanBufferRef.current += e.key;
       return;
     }
@@ -1909,7 +2263,7 @@ export default function TerminalPage() {
     if (hasLineBreak) {
       e.target.value = "";
       setEan(digits);
-      if (digits) commitScan(digits);
+      commitScan(raw.replace(/[\r\n]/g, ""));
       setEan("");
       return;
     }
@@ -1941,14 +2295,14 @@ export default function TerminalPage() {
         return;
       }
 
-      if (ev.key.length === 1 && /\d/.test(ev.key)) {
+      if (ev.key.length === 1 && /[0-9A-Za-z:_-]/.test(ev.key)) {
         scanBufferRef.current += ev.key;
       }
     };
 
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [deviceActivated]);
+  }, [commitScan, deviceActivated]);
 
   const appendWizardKey = (k: string) => {
     setWizardError(null);
@@ -2093,7 +2447,14 @@ export default function TerminalPage() {
         const p = payload as { ean?: string } | null;
         const raw = p?.ean;
         if (raw == null || raw === "") return;
-        const digits = String(raw).replace(/\D/g, "");
+        const text = String(raw).trim();
+        if (!text) return;
+        const upper = text.toUpperCase();
+        if (upper.startsWith("MUPA:")) {
+          commitScan(upper);
+          return;
+        }
+        const digits = text.replace(/\D/g, "");
         if (!digits) return;
         void consultarRef.current(digits);
       })
@@ -2106,7 +2467,7 @@ export default function TerminalPage() {
       supabase.removeChannel(rowCh);
       supabase.removeChannel(eanCh);
     };
-  }, [applyConfigValue, deviceActivated]);
+  }, [applyConfigValue, commitScan, deviceActivated]);
 
   const formatPrice = (value: number) => {
     const [reais, centavos] = value.toFixed(2).split(".");
@@ -2207,6 +2568,76 @@ export default function TerminalPage() {
             <div className={`w-full ${isLandscape ? "space-y-2" : "space-y-3"}`}>
               {wizardStep === 0 && (
                 <div className="space-y-2">
+                  {detectedDevice ? (
+                    <div className="rounded-xl border border-white/15 bg-white/5 p-3 space-y-2">
+                      <div className="text-[11px] text-white/70">
+                        Dispositivo detectado pelo ID do app:
+                      </div>
+                      <div className="text-white font-semibold text-sm">
+                        {sanitizeTerminalDeviceName(detectedDevice.device_name || "Terminal")}
+                      </div>
+                      <div className="text-[11px] text-white/55 font-mono">
+                        {normalizeEmpresaCode(detectedDevice.empresa_code)} · Loja {normalizeLojaNumero(detectedDevice.loja_numero)}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => void activateDeviceDirect({
+                            codigoEmpresa: detectedDevice.empresa_code,
+                            deviceName: detectedDevice.device_name,
+                            grupoId: detectedDevice.grupo_id,
+                            lojaNumero: detectedDevice.loja_numero,
+                          })}
+                          className="w-full py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all"
+                        >
+                          Confirmar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDetectedDevice(null)}
+                          className="w-full py-2 rounded-lg font-semibold text-white bg-white/10 hover:bg-white/15 transition-all border border-white/20"
+                        >
+                          Ignorar
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {lastKnownDevice.id && normalizeEmpresaCode(lastKnownDevice.empresa_code) && normalizeLojaNumero(lastKnownDevice.loja_numero) ? (
+                    <div className="rounded-xl border border-white/15 bg-white/5 p-3 space-y-2">
+                      <div className="text-[11px] text-white/70">
+                        Dispositivo já cadastrado:
+                      </div>
+                      <div className="text-white font-semibold text-sm">
+                        {sanitizeTerminalDeviceName(lastKnownDevice.device_name || "Terminal")}
+                      </div>
+                      <div className="text-[11px] text-white/55 font-mono">
+                        {normalizeEmpresaCode(lastKnownDevice.empresa_code)} · Loja {normalizeLojaNumero(lastKnownDevice.loja_numero)}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={restoreLastKnownDevice}
+                          className="w-full py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all"
+                        >
+                          Confirmar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            localStorage.removeItem("mupa_last_device_id");
+                            localStorage.removeItem("mupa_last_empresa_id");
+                            localStorage.removeItem("mupa_last_empresa_code");
+                            localStorage.removeItem("mupa_last_device_name");
+                            localStorage.removeItem("mupa_last_loja_numero");
+                            setLastKnownDevice({ id: "", empresa_id: "", empresa_code: "", device_name: "", loja_numero: "", device_key: "" });
+                          }}
+                          className="w-full py-2 rounded-lg font-semibold text-white bg-white/10 hover:bg-white/15 transition-all border border-white/20"
+                        >
+                          Novo
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   <p className={`${isLandscape ? "text-[13px]" : "text-sm"} text-white/70 text-center leading-relaxed`}>
                     Digite o código da empresa.
                   </p>

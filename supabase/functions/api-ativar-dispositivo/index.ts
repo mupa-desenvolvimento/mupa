@@ -25,6 +25,7 @@ function normalizeShortText(input: string, maxLen: number) {
 }
 
 const EMPRESA_CODE_RE = /^[A-Z]{3}[0-9]{3}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -44,7 +45,8 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const action = String(body?.action ?? "activate");
     const codigoEmpresa = normalizeCode(String(body?.codigo_empresa ?? ""));
-    const deviceId = String(body?.device_id ?? "").trim() || null;
+    const deviceIdRaw = String(body?.device_id ?? "").trim() || null;
+    const deviceKeyRaw = String(body?.device_key ?? "").trim() || null;
     const deviceName = normalizeShortText(body?.device_name ?? "Terminal", 40) || "Terminal";
     const grupoId = String(body?.grupo_id ?? "").trim() || null;
     const lojaNumero = normalizeShortText(body?.loja_numero ?? "", 12) || null;
@@ -82,12 +84,29 @@ Deno.serve(async (req) => {
 
     const now = new Date().toISOString();
 
-    if (deviceId) {
-      const { data: existing, error: existingError } = await supabase
-        .from("dispositivos")
-        .select("id, empresa_id, codigo_ativacao")
-        .eq("id", deviceId)
-        .maybeSingle();
+    const deviceId = deviceIdRaw && UUID_RE.test(deviceIdRaw) ? deviceIdRaw : null;
+    const deviceKey = deviceKeyRaw || (!deviceId && deviceIdRaw ? normalizeShortText(deviceIdRaw, 64) : null);
+
+    const selectExisting = async () => {
+      if (deviceId) {
+        return await supabase
+          .from("dispositivos")
+          .select("id, empresa_id, codigo_ativacao")
+          .eq("id", deviceId)
+          .maybeSingle();
+      }
+      if (deviceKey) {
+        return await supabase
+          .from("dispositivos")
+          .select("id, empresa_id, codigo_ativacao")
+          .eq("device_key", deviceKey)
+          .maybeSingle();
+      }
+      return { data: null, error: null } as { data: null; error: null };
+    };
+
+    {
+      const { data: existing, error: existingError } = await selectExisting();
 
       if (existingError) throw existingError;
 
@@ -100,6 +119,7 @@ Deno.serve(async (req) => {
           nome: deviceName,
           grupo_id: grupoId,
           loja_numero: lojaNumero,
+          device_key: deviceKey,
         } as Record<string, unknown>;
 
         let updateError: unknown = null;
@@ -113,17 +133,23 @@ Deno.serve(async (req) => {
 
         if (updateError) {
           const msg = updateError instanceof Error ? updateError.message : String(updateError);
-          if (msg.includes("loja_numero") && msg.includes("column")) {
-            delete baseUpdate.loja_numero;
+          const missingLoja = msg.includes("loja_numero") && msg.includes("column");
+          const missingKey = msg.includes("device_key") && msg.includes("column");
+          if (missingLoja || missingKey) {
+            if (missingLoja) delete baseUpdate.loja_numero;
+            if (missingKey) delete baseUpdate.device_key;
             const { error } = await supabase
               .from("dispositivos")
               .update(baseUpdate)
               .eq("id", existing.id);
             if (error) throw error;
+            const warnings: string[] = [];
+            if (missingLoja) warnings.push("Coluna dispositivos.loja_numero não existe. Aplique a migration sugerida para salvar o número da loja.");
+            if (missingKey) warnings.push("Coluna dispositivos.device_key não existe. Aplique a migration sugerida para vincular ID externo.");
             return new Response(
               JSON.stringify({
                 dispositivo: { id: existing.id, empresa_id: empresa.id, codigo_ativacao: existing.codigo_ativacao },
-                warnings: ["Coluna dispositivos.loja_numero não existe. Aplique a migration sugerida para salvar o número da loja."],
+                warnings,
               }),
               { headers: jsonHeaders },
             );
@@ -148,6 +174,7 @@ Deno.serve(async (req) => {
       ultimo_acesso: now,
       grupo_id: grupoId,
       loja_numero: lojaNumero,
+      device_key: deviceKey,
     } as Record<string, unknown>;
 
     let createError: unknown = null;
@@ -164,18 +191,24 @@ Deno.serve(async (req) => {
 
     if (createError) {
       const msg = createError instanceof Error ? createError.message : String(createError);
-      if (msg.includes("loja_numero") && msg.includes("column")) {
-        delete baseInsert.loja_numero;
+      const missingLoja = msg.includes("loja_numero") && msg.includes("column");
+      const missingKey = msg.includes("device_key") && msg.includes("column");
+      if (missingLoja || missingKey) {
+        if (missingLoja) delete baseInsert.loja_numero;
+        if (missingKey) delete baseInsert.device_key;
         const { data, error } = await supabase
           .from("dispositivos")
           .insert(baseInsert)
           .select("id, empresa_id, codigo_ativacao")
           .single();
         if (error) throw error;
+        const warnings: string[] = [];
+        if (missingLoja) warnings.push("Coluna dispositivos.loja_numero não existe. Aplique a migration sugerida para salvar o número da loja.");
+        if (missingKey) warnings.push("Coluna dispositivos.device_key não existe. Aplique a migration sugerida para vincular ID externo.");
         return new Response(
           JSON.stringify({
             dispositivo: data,
-            warnings: ["Coluna dispositivos.loja_numero não existe. Aplique a migration sugerida para salvar o número da loja."],
+            warnings,
           }),
           { headers: jsonHeaders },
         );
@@ -192,4 +225,3 @@ Deno.serve(async (req) => {
     );
   }
 });
-

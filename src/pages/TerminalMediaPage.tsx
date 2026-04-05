@@ -22,6 +22,7 @@ import {
   arrayMove, SortableContext, horizontalListSortingStrategy, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import QRCode from "qrcode";
 
 interface TerminalMedia {
   id: string;
@@ -60,6 +61,36 @@ function formatDuration(seconds: number) {
 
 function clamp(min: number, value: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function QrCodeTile({ label, value }: { label: string; value: string }) {
+  const [dataUrl, setDataUrl] = useState<string>("");
+
+  useEffect(() => {
+    let active = true;
+    (QRCode as unknown as { toDataURL: (text: string, opts: unknown) => Promise<string> })
+      .toDataURL(value, { margin: 1, width: 180 })
+      .then((url) => {
+        if (!active) return;
+        setDataUrl(url);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [value]);
+
+  return (
+    <Card className="p-3 flex gap-3 items-center">
+      <div className="h-[84px] w-[84px] rounded-md bg-white flex items-center justify-center border overflow-hidden shrink-0">
+        {dataUrl ? <img src={dataUrl} alt={label} className="h-full w-full object-contain" /> : null}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold">{label}</div>
+        <div className="text-xs text-muted-foreground break-all">{value}</div>
+      </div>
+    </Card>
+  );
 }
 
 const snapCenterToCursor: Modifier = ({ activatorEvent, activeNodeRect, transform }) => {
@@ -2057,6 +2088,23 @@ export default function TerminalMediaPage() {
               <p className="text-xs text-muted-foreground">Exibe data e hora no canto esquerdo</p>
             </div>
             <Switch checked={footerClockEnabled} onCheckedChange={(checked) => { setFooterClockEnabled(checked); saveConfig("footer_clock_enabled", String(checked)); }} />
+          </div>
+
+          <div className="stat-card !p-4 space-y-3">
+            <div className="flex items-center gap-4">
+              <Settings className="w-5 h-5 text-muted-foreground shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium">Códigos do Terminal (QR)</p>
+                <p className="text-xs text-muted-foreground">Escaneie estes QR Codes no Terminal para executar ações rápidas</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <QrCodeTile label="Apagar cache (preços + imagens)" value="MUPA:CLEAR_CACHE" />
+              <QrCodeTile label="Apagar cache de imagens sem fundo" value="MUPA:CLEAR_NOBG" />
+              <QrCodeTile label="Recarregar Terminal" value="MUPA:RELOAD" />
+              <QrCodeTile label="Voltar ao wizard" value="MUPA:RESET_WIZARD" />
+              <QrCodeTile label="Focar no input" value="MUPA:FOCUS" />
+            </div>
           </div>
 
           <div className="flex justify-end pt-2">

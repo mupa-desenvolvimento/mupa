@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import QRCode from "qrcode";
 
 // ─── Types ───
 interface Empresa {
@@ -56,6 +57,14 @@ interface EmpresaApiConfig {
   tipo_api: string;
   ativo: boolean;
 }
+
+const TERMINAL_COMMANDS = [
+  { label: "Apagar cache (preços + imagens)", value: "MUPA:CLEAR_CACHE" },
+  { label: "Apagar cache de imagens sem fundo", value: "MUPA:CLEAR_NOBG" },
+  { label: "Recarregar Terminal", value: "MUPA:RELOAD" },
+  { label: "Voltar ao wizard", value: "MUPA:RESET_WIZARD" },
+  { label: "Focar no input", value: "MUPA:FOCUS" },
+] as const;
 
 type DispositivoGrupo = {
   id: string;
@@ -106,6 +115,36 @@ function saveConsultHistory(deviceId: string, entries: TerminalConsultEntry[]) {
   }
 }
 
+function QrCodeTile({ label, value }: { label: string; value: string }) {
+  const [dataUrl, setDataUrl] = useState<string>("");
+
+  useEffect(() => {
+    let active = true;
+    (QRCode as unknown as { toDataURL: (text: string, opts: unknown) => Promise<string> })
+      .toDataURL(value, { margin: 1, width: 180 })
+      .then((url) => {
+        if (!active) return;
+        setDataUrl(url);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [value]);
+
+  return (
+    <Card className="p-3 flex gap-3 items-center">
+      <div className="h-[84px] w-[84px] rounded-md bg-white flex items-center justify-center border overflow-hidden shrink-0">
+        {dataUrl ? <img src={dataUrl} alt={label} className="h-full w-full object-contain" /> : null}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold">{label}</div>
+        <div className="text-xs text-muted-foreground break-all">{value}</div>
+      </div>
+    </Card>
+  );
+}
+
 type RealtimeChannel = ReturnType<typeof supabase.channel>;
 
 const TERMINAL_LAYOUTS = [
@@ -153,6 +192,8 @@ export default function DispositivosPage() {
   const [savingLayout, setSavingLayout] = useState(false);
   const [terminalChannelReady, setTerminalChannelReady] = useState(false);
   const terminalChannelRef = useRef<RealtimeChannel | null>(null);
+  const [commandQr, setCommandQr] = useState<{ label: string; value: string } | null>(null);
+  const [commandQrDataUrl, setCommandQrDataUrl] = useState<string>("");
   const [deviceAppearanceOpen, setDeviceAppearanceOpen] = useState(false);
   const [deviceOverrides, setDeviceOverrides] = useState<Record<string, unknown>>({});
   const [savingDeviceOverrides, setSavingDeviceOverrides] = useState(false);
@@ -161,6 +202,24 @@ export default function DispositivosPage() {
   const [apiUrl, setApiUrl] = useState("");
   const [apiToken, setApiToken] = useState("");
   const [apiTipo, setApiTipo] = useState("rest");
+
+  useEffect(() => {
+    if (!commandQr) {
+      setCommandQrDataUrl("");
+      return;
+    }
+    let active = true;
+    (QRCode as unknown as { toDataURL: (text: string, opts: unknown) => Promise<string> })
+      .toDataURL(commandQr.value, { margin: 1, width: 360 })
+      .then((url) => {
+        if (!active) return;
+        setCommandQrDataUrl(url);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [commandQr]);
 
   // ── Queries ──
   const { data: empresas = [] } = useQuery({
@@ -423,11 +482,14 @@ export default function DispositivosPage() {
   }, [detailDevice]);
 
   const sendRemoteEan = async (raw: string) => {
-    const digits = raw.replace(/\D/g, "");
-    if (!digits) throw new Error("Informe um EAN com números");
+    const text = raw.trim();
+    if (!text) throw new Error("Informe um código");
+    const upper = text.toUpperCase();
+    const payloadEan = upper.startsWith("MUPA:") ? upper : text.replace(/\D/g, "");
+    if (!payloadEan) throw new Error("Informe um EAN com números ou um comando MUPA:");
     const channel = terminalChannelRef.current;
     if (!channel || !terminalChannelReady) throw new Error("Canal Realtime não conectado ao terminal");
-    const res = await channel.send({ type: "broadcast", event: "ean", payload: { ean: digits } });
+    const res = await channel.send({ type: "broadcast", event: "ean", payload: { ean: payloadEan } });
     if (res === "ok") return;
     throw new Error(res === "timed out" ? "Tempo esgotado ao enviar" : "Falha ao enviar EAN");
   };
@@ -873,6 +935,56 @@ export default function DispositivosPage() {
                   )}
                 </div>
 
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <Label className="text-base">Comandos do Terminal (QR)</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Escaneie estes QR Codes no Terminal para executar ações rápidas.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {TERMINAL_COMMANDS.map((cmd) => (
+                      <div key={cmd.value} className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="flex-1 justify-between"
+                          disabled={!detailDevice.input_remoto_ativo || sendingEan}
+                          onClick={async () => {
+                            setSendingEan(true);
+                            try {
+                              await sendRemoteEan(cmd.value);
+                              toast.success("Comando enviado ao terminal");
+                            } catch (err) {
+                              toast.error(err instanceof Error ? err.message : "Erro ao enviar");
+                            } finally {
+                              setSendingEan(false);
+                            }
+                          }}
+                        >
+                          <span className="truncate">{cmd.label}</span>
+                          <span className="ml-3 font-mono text-xs text-muted-foreground">{cmd.value}</span>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setCommandQr({ label: cmd.label, value: cmd.value })}
+                        >
+                          <QrCode className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    {!detailDevice.input_remoto_ativo && (
+                      <p className="text-xs text-amber-600 dark:text-amber-500">
+                        Ative &quot;Input remoto&quot; para permitir o envio dos comandos.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
                 <div className="rounded-lg border p-4 space-y-2">
                   <div className="flex items-center justify-between gap-4">
                     <div className="space-y-0.5">
@@ -1290,6 +1402,48 @@ export default function DispositivosPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={commandQr !== null} onOpenChange={(o) => { if (!o) setCommandQr(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <QrCode className="h-5 w-5" />
+              {commandQr?.label ?? "QR Code"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-lg border bg-white p-3 flex items-center justify-center">
+              {commandQrDataUrl ? (
+                <img src={commandQrDataUrl} alt={commandQr?.label ?? "QR Code"} className="w-[320px] h-[320px] object-contain" />
+              ) : null}
+            </div>
+            <div className="text-xs text-muted-foreground break-all">{commandQr?.value}</div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  if (!commandQr?.value) return;
+                  void (async () => {
+                    try {
+                      await navigator.clipboard.writeText(commandQr.value);
+                      toast.success("Código copiado");
+                    } catch {
+                      toast.error("Não foi possível copiar");
+                    }
+                  })();
+                }}
+              >
+                <Copy className="h-4 w-4 mr-2" />
+                Copiar
+              </Button>
+              <Button type="button" onClick={() => setCommandQr(null)}>
+                Fechar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
