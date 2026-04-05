@@ -87,6 +87,7 @@ export type Database = {
           codigo_ativacao: string
           config_override: Json
           criado_em: string
+          device_key: string | null
           empresa_id: string | null
           grupo_id: string | null
           id: string
@@ -101,6 +102,7 @@ export type Database = {
           codigo_ativacao?: string
           config_override?: Json
           criado_em?: string
+          device_key?: string | null
           empresa_id?: string | null
           grupo_id?: string | null
           id?: string
@@ -115,6 +117,7 @@ export type Database = {
           codigo_ativacao?: string
           config_override?: Json
           criado_em?: string
+          device_key?: string | null
           empresa_id?: string | null
           grupo_id?: string | null
           id?: string
