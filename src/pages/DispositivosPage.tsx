@@ -44,6 +44,7 @@ interface Dispositivo {
   ativo: boolean;
   input_remoto_ativo?: boolean;
   config_override?: Record<string, unknown> | null;
+  loja_numero?: string | null;
   ativado_em: string | null;
   ultimo_acesso: string | null;
   criado_em: string;
@@ -147,6 +148,14 @@ function QrCodeTile({ label, value }: { label: string; value: string }) {
 
 type RealtimeChannel = ReturnType<typeof supabase.channel>;
 
+function normalizeLojaNumero(value: string) {
+  return String(value ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, "")
+    .slice(0, 12)
+    .trim();
+}
+
 const TERMINAL_LAYOUTS = [
   { value: "classico", label: "Clássico", desc: "Imagem grande, nome e preço com boa hierarquia, sugestões abaixo" },
   { value: "compacto", label: "Compacto", desc: "Mais itens em tela, bom para telas menores" },
@@ -194,6 +203,8 @@ export default function DispositivosPage() {
   const terminalChannelRef = useRef<RealtimeChannel | null>(null);
   const [commandQr, setCommandQr] = useState<{ label: string; value: string } | null>(null);
   const [commandQrDataUrl, setCommandQrDataUrl] = useState<string>("");
+  const [deviceLojaNumero, setDeviceLojaNumero] = useState("");
+  const [savingLojaNumero, setSavingLojaNumero] = useState(false);
   const [deviceAppearanceOpen, setDeviceAppearanceOpen] = useState(false);
   const [deviceOverrides, setDeviceOverrides] = useState<Record<string, unknown>>({});
   const [savingDeviceOverrides, setSavingDeviceOverrides] = useState(false);
@@ -401,6 +412,16 @@ export default function DispositivosPage() {
 
   useEffect(() => {
     if (!detailDevice) return;
+    setDeviceLojaNumero(normalizeLojaNumero(detailDevice.loja_numero ?? ""));
+    void (async () => {
+      const { data } = await supabase.from("dispositivos").select("loja_numero").eq("id", detailDevice.id).maybeSingle();
+      const loja = normalizeLojaNumero((data as { loja_numero?: string | null } | null)?.loja_numero ?? "");
+      setDeviceLojaNumero(loja);
+    })();
+  }, [detailDevice]);
+
+  useEffect(() => {
+    if (!detailDevice) return;
     const existing = detailDevice.config_override;
     if (existing && typeof existing === "object") setDeviceOverrides(existing);
     else setDeviceOverrides({});
@@ -429,6 +450,23 @@ export default function DispositivosPage() {
       toast.error(e instanceof Error ? e.message : "Erro ao salvar aparência do dispositivo");
     } finally {
       setSavingDeviceOverrides(false);
+    }
+  };
+
+  const saveDeviceLojaNumero = async () => {
+    if (!detailDevice) return;
+    const loja = normalizeLojaNumero(deviceLojaNumero);
+    setSavingLojaNumero(true);
+    try {
+      const { error } = await supabase.from("dispositivos").update({ loja_numero: loja || null }).eq("id", detailDevice.id);
+      if (error) throw error;
+      qc.invalidateQueries({ queryKey: ["dispositivos"] });
+      setDetailDevice((d) => (d && d.id === detailDevice.id ? { ...d, loja_numero: loja || null } : d));
+      toast.success("Número da loja atualizado");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao atualizar número da loja");
+    } finally {
+      setSavingLojaNumero(false);
     }
   };
 
@@ -890,10 +928,34 @@ export default function DispositivosPage() {
                     <code className="bg-muted px-1 rounded">{detailDevice.codigo_ativacao}</code>
                   </div>
                   <div>
+                    <span className="text-muted-foreground">Loja:</span>{" "}
+                    <span className="font-medium">{detailDevice.loja_numero ? detailDevice.loja_numero : "—"}</span>
+                  </div>
+                  <div>
                     <span className="text-muted-foreground">Último acesso:</span>{" "}
                     {detailDevice.ultimo_acesso
                       ? new Date(detailDevice.ultimo_acesso).toLocaleString("pt-BR")
                       : "—"}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-4 space-y-2">
+                  <div className="space-y-0.5">
+                    <Label className="text-base">Número da loja</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Este valor é usado na consulta de preço (número da loja na API). O terminal aplica automaticamente ao receber a atualização.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      value={deviceLojaNumero}
+                      onChange={(e) => setDeviceLojaNumero(e.target.value)}
+                      placeholder="Ex: LJ01"
+                      className="font-mono"
+                    />
+                    <Button type="button" onClick={() => void saveDeviceLojaNumero()} disabled={savingLojaNumero}>
+                      Salvar
+                    </Button>
                   </div>
                 </div>
 

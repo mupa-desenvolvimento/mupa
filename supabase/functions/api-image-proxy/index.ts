@@ -19,7 +19,8 @@ function isAllowedHost(hostname: string) {
     h === "vteximg.com.br" ||
     h.endsWith(".vteximg.com.br") ||
     h === "vtexassets.com" ||
-    h.endsWith(".vtexassets.com")
+    h.endsWith(".vtexassets.com") ||
+    h === "srv-mupa.ddns.net"
   );
 }
 
@@ -39,7 +40,8 @@ Deno.serve(async (req: Request) => {
     return new Response("invalid url", { status: 400, headers: corsHeaders });
   }
 
-  if (u.protocol !== "https:") {
+  const allowHttp = u.hostname.toLowerCase() === "srv-mupa.ddns.net";
+  if (u.protocol !== "https:" && !(allowHttp && u.protocol === "http:")) {
     return new Response("invalid protocol", { status: 400, headers: corsHeaders });
   }
 
@@ -70,4 +72,3 @@ Deno.serve(async (req: Request) => {
     },
   });
 });
-
