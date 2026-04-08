@@ -3141,15 +3141,17 @@ export default function TerminalPage() {
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         <button
                           type="button"
+                          disabled={activatingDevice}
                           onClick={() => void activateDeviceDirect({
                             codigoEmpresa: detectedDevice.empresa_code,
                             deviceName: detectedDevice.device_name,
                             grupoId: detectedDevice.grupo_id,
                             lojaNumero: detectedDevice.loja_numero,
+                            deviceId: detectedDevice.id,
                           })}
-                          className="w-full py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all"
+                          className="w-full py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all"
                         >
-                          Confirmar
+                          {activatingDevice ? "Aguarde..." : "Confirmar"}
                         </button>
                         <button
                           type="button"
