@@ -1,9 +1,4 @@
-declare const Deno: {
-  env: {
-    get(name: string): string | undefined;
-  };
-  serve: (handler: (req: Request) => Response | Promise<Response>) => void;
-};
+// Deno globals are provided by the runtime — do not redeclare.
 
 declare module "https://esm.sh/@supabase/supabase-js@2.49.1" {
   type QueryResult<T = unknown> = { data: T; error: unknown };
