@@ -1146,6 +1146,7 @@ export default function TerminalPage() {
     deviceName: string;
     grupoId: string | null;
     lojaNumero: string;
+    deviceId?: string;
   }) => {
     const codigoEmpresa = normalizeEmpresaCode(args.codigoEmpresa);
     const deviceName = sanitizeTerminalDeviceName(args.deviceName) || "Terminal";
@@ -1155,7 +1156,7 @@ export default function TerminalPage() {
     setActivatingDevice(true);
     setWizardError(null);
     try {
-      const deviceId = localStorage.getItem("mupa_device_id");
+      const deviceId = args.deviceId || localStorage.getItem("mupa_device_id");
       const deviceKey = localStorage.getItem("mupa_device_key");
       const { res, json } = await fetchJsonWithTimeout(`${BASE_URL}/api-ativar-dispositivo`, {
         method: "POST",
@@ -1163,6 +1164,7 @@ export default function TerminalPage() {
         body: JSON.stringify({
           codigo_empresa: codigoEmpresa,
           device_id: deviceId || deviceKey || null,
+          device_key: deviceKey || null,
           device_name: deviceName,
           grupo_id: grupoId,
           loja_numero: lojaNumero || null,
