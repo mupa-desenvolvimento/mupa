@@ -762,6 +762,8 @@ const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 const SUPABASE_FUNCTION_HEADERS = getSupabaseFunctionHeaders();
 
 export default function TerminalPage() {
+  // ---- Fullscreen + Wake Lock ----
+  useFullscreen(true);
   // ---- Sistema de Manutenção Manual ----
   const { 
     isUnderMaintenance, 
