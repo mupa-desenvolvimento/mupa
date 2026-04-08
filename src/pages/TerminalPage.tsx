@@ -5,6 +5,7 @@ import { Barcode, AlertTriangle, Search } from "lucide-react";
 import { suppressNativeKeyboardProps } from "@/components/virtual-keyboard/suppressNativeKeyboard";
 import { VirtualKeyboard } from "@/components/virtual-keyboard/VirtualKeyboard";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { useFullscreen } from "@/hooks/useFullscreen";
 import MaintenanceBanner from "@/components/MaintenanceBanner";
 import { useMaintenanceStatus } from "@/hooks/useMaintenanceStatus";
 import { useInfinitePolling } from "@/hooks/useInfinitePolling";
