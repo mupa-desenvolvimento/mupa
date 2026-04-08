@@ -1,0 +1,36 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="512" height="512" rx="64" fill="#0f172a"/>
+  
+  <!-- Terminal Icon -->
+  <rect x="85" y="128" width="342" height="256" rx="20" fill="#1e293b" stroke="#334155" stroke-width="4"/>
+  
+  <!-- Terminal Screen -->
+  <rect x="105" y="148" width="302" height="192" rx="12" fill="#000000"/>
+  
+  <!-- Terminal Text Lines -->
+  <rect x="125" y="168" width="214" height="6" fill="#10b981"/>
+  <rect x="125" y="184" width="256" height="6" fill="#10b981"/>
+  <rect x="125" y="200" width="171" height="6" fill="#10b981"/>
+  
+  <!-- Terminal Cursor -->
+  <rect x="125" y="216" width="20" height="6" fill="#10b981">
+    <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
+  </rect>
+  
+  <!-- Barcode Symbol -->
+  <rect x="192" y="280" width="6" height="42" fill="#64748b"/>
+  <rect x="202" y="280" width="10" height="42" fill="#64748b"/>
+  <rect x="216" y="280" width="6" height="42" fill="#64748b"/>
+  <rect x="226" y="280" width="8" height="42" fill="#64748b"/>
+  <rect x="238" y="280" width="6" height="42" fill="#64748b"/>
+  <rect x="248" y="280" width="10" height="42" fill="#64748b"/>
+  <rect x="262" y="280" width="6" height="42" fill="#64748b"/>
+  <rect x="272" y="280" width="8" height="42" fill="#64748b"/>
+  <rect x="284" y="280" width="6" height="42" fill="#64748b"/>
+  <rect x="294" y="280" width="10" height="42" fill="#64748b"/>
+  
+  <!-- Brand Text -->
+  <text x="256" y="440" font-family="Arial, sans-serif" font-size="36" font-weight="bold" text-anchor="middle" fill="#ffffff">MUPA</text>
+  <text x="256" y="470" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#94a3b8">TERMINAL</text>
+</svg>

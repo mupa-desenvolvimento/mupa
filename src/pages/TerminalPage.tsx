@@ -4,6 +4,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Barcode, AlertTriangle, Search } from "lucide-react";
 import { suppressNativeKeyboardProps } from "@/components/virtual-keyboard/suppressNativeKeyboard";
 import { VirtualKeyboard } from "@/components/virtual-keyboard/VirtualKeyboard";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import MaintenanceBanner from "@/components/MaintenanceBanner";
+import { useMaintenanceStatus } from "@/hooks/useMaintenanceStatus";
+import { useInfinitePolling } from "@/hooks/useInfinitePolling";
 
 interface Produto {
   ean: string;
@@ -727,9 +731,29 @@ async function generateThemeFromImage(imageUrl: string): Promise<ProductTheme> {
   const cached = themeCache.get(imageUrl);
   if (cached) return cached;
 
-  const palette = await extractPalette(imageUrl);
+  let palette = await extractPalette(imageUrl);
+  if (palette.length === 0 && /^https?:/i.test(imageUrl)) {
+    try {
+      const proxyUrl = `${BASE_URL}/api-image-proxy?url=${encodeURIComponent(imageUrl)}`;
+      const res = await fetchWithTimeout(proxyUrl, { headers: { ...SUPABASE_FUNCTION_HEADERS }, cache: "force-cache" }, 8000);
+      if (res.ok) {
+        const blob = await res.blob();
+        const objUrl = URL.createObjectURL(blob);
+        try {
+          palette = await extractPalette(objUrl);
+        } finally {
+          URL.revokeObjectURL(objUrl);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const theme = _generateTheme(palette);
-  themeCache.set(imageUrl, theme);
+  if (palette.length > 0) {
+    themeCache.set(imageUrl, theme);
+  }
   return theme;
 }
 
@@ -737,10 +761,25 @@ const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 const SUPABASE_FUNCTION_HEADERS = getSupabaseFunctionHeaders();
 
 export default function TerminalPage() {
+  // ---- Sistema de Manutenção Manual ----
+  const { 
+    isUnderMaintenance, 
+    maintenanceMessage, 
+    isLoading: maintenanceLoading,
+    error: maintenanceError,
+    forceCheck: forceMaintenanceCheck 
+  } = useMaintenanceStatus({
+    checkInterval: 30000, // 30 segundos
+    retryDelay: 5000, // 5 segundos
+    maxRetries: Infinity, // retry infinito
+  });
+
   // ── Device activation state ──
   const [deviceActivated, setDeviceActivated] = useState<boolean>(() => {
     return !!localStorage.getItem("mupa_device_id");
   });
+  const deviceValidationRef = useRef<{ checked: boolean; key: string }>({ checked: false, key: "" });
+  const deviceKeyNotFoundRef = useRef<string>("");
   const [lastKnownDevice, setLastKnownDevice] = useState(() => {
     const id = localStorage.getItem("mupa_last_device_id") || "";
     const empresa_id = localStorage.getItem("mupa_last_empresa_id") || "";
@@ -844,6 +883,7 @@ export default function TerminalPage() {
     if (deviceActivated) return;
     const key = (urlDeviceKey || "").trim();
     if (!key) return;
+    if (deviceKeyNotFoundRef.current === key) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -882,7 +922,13 @@ export default function TerminalPage() {
             dev = res.data as typeof dev;
           }
         }
-        if (!dev?.id || !dev.empresa_id) return;
+        if (!dev?.id || !dev.empresa_id) {
+          if (cancelled) return;
+          deviceKeyNotFoundRef.current = key;
+          resetToWizard();
+          setWizardError("Dispositivo não cadastrado. Faça um novo cadastro.");
+          return;
+        }
         const { data: emp, error: empErr } = await sb
           .from("empresas")
           .select("codigo_vinculo")
@@ -891,7 +937,13 @@ export default function TerminalPage() {
         if (empErr) throw empErr;
         const empresa_code = normalizeEmpresaCode((emp as { codigo_vinculo?: string | null } | null)?.codigo_vinculo ?? "");
         const loja_numero = normalizeLojaNumero(String((dev as { loja_numero?: string | null }).loja_numero ?? ""));
-        if (!empresa_code || !loja_numero) return;
+        if (!empresa_code || !loja_numero) {
+          if (cancelled) return;
+          deviceKeyNotFoundRef.current = key;
+          resetToWizard();
+          setWizardError("Dispositivo cadastrado sem configuração completa. Faça um novo cadastro.");
+          return;
+        }
         if (cancelled) return;
         setDetectedDevice({
           id: dev.id,
@@ -909,7 +961,7 @@ export default function TerminalPage() {
     return () => {
       cancelled = true;
     };
-  }, [deviceActivated, urlDeviceKey]);
+  }, [deviceActivated, resetToWizard, urlDeviceKey]);
 
   const resolveEmpresaContext = useCallback(async (): Promise<{ codigo_empresa: string; numero_loja: string; empresa_id: string } | null> => {
     const code = normalizeEmpresaCode(localStorage.getItem("mupa_empresa_code") || empresaCode || "");
@@ -1032,15 +1084,30 @@ export default function TerminalPage() {
     void ensureEmpresaPrecoConfigLoaded();
   }, [deviceActivated, ensureEmpresaPrecoConfigLoaded]);
 
-  useEffect(() => {
-    if (!deviceActivated) return;
-    const intervalMs = 10 * 60 * 1000;
-    const t = window.setInterval(() => {
-      if (!navigator.onLine) return;
-      void ensureEmpresaPrecoConfigLoaded();
-    }, intervalMs);
-    return () => window.clearInterval(t);
-  }, [deviceActivated, ensureEmpresaPrecoConfigLoaded]);
+  // ---- Sistema de Polling Infinito (nunca para) ----
+  const { 
+    data: precoConfigData, 
+    isLoading: precoConfigPollingLoading, 
+    error: precoConfigPollingError,
+    forceUpdate: forcePrecoConfigUpdate 
+  } = useInfinitePolling(
+    async () => {
+      if (!deviceActivated) return null;
+      await ensureEmpresaPrecoConfigLoaded();
+      return { timestamp: Date.now() };
+    },
+    {
+      interval: 5 * 60 * 1000, // 5 minutos (mais frequente)
+      retryDelay: 10000, // 10 segundos entre tentativas
+      maxRetries: Infinity, // nunca para de tentar
+      onError: (error) => {
+        console.log('Erro no polling de configuração, tentando novamente...', error.message);
+      },
+      onSuccess: () => {
+        console.log('Configuração atualizada com sucesso');
+      }
+    }
+  );
 
   const loadGroupsForWizard = useCallback(async () => {
     try {
@@ -1140,6 +1207,34 @@ export default function TerminalPage() {
     const empresaId = localStorage.getItem("mupa_empresa_id");
     if (empresaId) setDeviceEmpresa(empresaId);
   }, []);
+
+  useEffect(() => {
+    if (!deviceActivated) return;
+    if (deviceValidationRef.current.checked) return;
+    const deviceId = String(localStorage.getItem("mupa_device_id") || "").trim();
+    const deviceKey = String(localStorage.getItem("mupa_device_key") || "").trim();
+    const q = deviceId ? deviceId : deviceKey;
+    if (!q) return;
+    deviceValidationRef.current = { checked: true, key: q };
+
+    void (async () => {
+      try {
+        const { res, json } = await fetchJsonWithTimeout(
+          `${BASE_URL}/api-device-lookup?device_id=${encodeURIComponent(q)}`,
+          { method: "GET", headers: { ...SUPABASE_FUNCTION_HEADERS } },
+          8000,
+        );
+        if (!res.ok) return;
+        const payload = json as { found?: boolean } | null;
+        if (payload?.found === false) {
+          resetToWizard();
+          setWizardError("Dispositivo não encontrado na plataforma. Faça um novo cadastro.");
+        }
+      } catch {
+        return;
+      }
+    })();
+  }, [deviceActivated, resetToWizard]);
 
   const [ean, setEan] = useState("");
   const [produto, setProduto] = useState<Produto | null>(null);
@@ -1295,24 +1390,37 @@ export default function TerminalPage() {
     return () => { document.removeEventListener("visibilitychange", onVisibilityChange); wakeLock?.release(); };
   }, []);
 
+  // ---- Fullscreen Simplificado (sem interferência na operação) ----
   useEffect(() => {
-    const enterFullscreen = async () => {
+    const tryFullscreen = async () => {
       const node = containerRef.current;
-      if (!node) return;
+      if (!node || document.fullscreenElement) return;
+      
       try {
-        if (!document.fullscreenElement) await node.requestFullscreen();
-      } catch {
-        return;
+        await node.requestFullscreen();
+      } catch (error) {
+        // Silenciosamente ignorar falhas de fullscreen
+        console.log('Fullscreen não disponível, operação continua normal');
       }
     };
 
-    void enterFullscreen();
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void enterFullscreen();
+    // Tentar fullscreen apenas uma vez após carregar
+    const timeoutId = setTimeout(() => {
+      void tryFullscreen();
+    }, 1000);
+
+    // Tentar novamente quando a página ficar visível
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && !document.fullscreenElement) {
+        setTimeout(() => void tryFullscreen(), 500);
+      }
     };
-    document.addEventListener("visibilitychange", onVisibility);
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
+      clearTimeout(timeoutId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
@@ -2264,7 +2372,8 @@ export default function TerminalPage() {
         }
 
         if (corAutoEnabled && cachedMem.imagem_url_vtex) {
-          generateThemeFromImage(cachedMem.imagem_url_vtex).then(t => setTheme(t));
+          const imgForTheme = cachedMem.imagem_url_sem_fundo || cachedMem.imagem_url_vtex || cachedMem.link_imagem || "";
+          if (imgForTheme) generateThemeFromImage(imgForTheme).then(t => setTheme(t));
         }
 
         return;
@@ -2335,7 +2444,8 @@ export default function TerminalPage() {
         }
 
         if (corAutoEnabled && cachedStorage.imagem_url_vtex) {
-          generateThemeFromImage(cachedStorage.imagem_url_vtex).then(t => setTheme(t));
+          const imgForTheme = cachedStorage.imagem_url_sem_fundo || cachedStorage.imagem_url_vtex || cachedStorage.link_imagem || "";
+          if (imgForTheme) generateThemeFromImage(imgForTheme).then(t => setTheme(t));
         }
 
         return;
@@ -2395,8 +2505,9 @@ export default function TerminalPage() {
         armReturnToIdle(null, 8000);
       }
 
-      if (corAutoEnabled && prod.imagem_url_vtex) {
-        generateThemeFromImage(prod.imagem_url_vtex).then(t => setTheme(t));
+      if (corAutoEnabled) {
+        const imgForTheme = prod.imagem_url_sem_fundo || prod.imagem_url_vtex || prod.link_imagem || "";
+        if (imgForTheme) generateThemeFromImage(imgForTheme).then(t => setTheme(t));
       }
 
     } catch (e) {
@@ -3476,12 +3587,31 @@ export default function TerminalPage() {
     );
   }
 
+  // Exibir banner de manutenção apenas se status manual indicar
+  if (isUnderMaintenance) {
+    return (
+      <MaintenanceBanner
+        message={maintenanceMessage || "Sistema em manutenção programada. Retornamos em breve."}
+        onRetry={forceMaintenanceCheck}
+        showRetry={true}
+      />
+    );
+  }
+
   return (
-    <div
-      ref={containerRef}
-      className="terminal-page"
-      style={{ background: bgGradient, cursor: "none", transition: transitionStyle }}
+    <ErrorBoundary
+      fallback={
+        <MaintenanceBanner
+          message="Ocorreu um erro inesperado no sistema."
+          onRetry={() => window.location.reload()}
+        />
+      }
     >
+      <div
+        ref={containerRef}
+        className="terminal-page"
+        style={{ background: bgGradient, cursor: "none", transition: transitionStyle }}
+      >
       <div
         ref={scanTrapRef}
         tabIndex={0}
@@ -4154,5 +4284,6 @@ export default function TerminalPage() {
         </div>
       )}
     </div>
+    </ErrorBoundary>
   );
 }

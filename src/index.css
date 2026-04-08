@@ -608,7 +608,7 @@
   }
 
   .terminal-media-content {
-    @apply w-full h-full object-fill;
+    @apply w-full h-full object-cover;
   }
 
   /* ===== LANDSCAPE MODE (width > height) ===== */

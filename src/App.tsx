@@ -16,6 +16,10 @@ import TerminalPage from "./pages/TerminalPage";
 import DispositivosPage from "./pages/DispositivosPage";
 import PrecoMapeamentoPage from "./pages/PrecoMapeamentoPage";
 import NotFound from "./pages/NotFound";
+import HomePage from "./pages/HomePage";
+import DiagnosticPage from "./pages/DiagnosticPage";
+import PWAHelpPage from "./pages/PWAHelpPage";
+import MaintenanceControlPage from "./pages/MaintenanceControlPage";
 
 const queryClient = new QueryClient();
 
@@ -27,8 +31,20 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <Routes>
+            {/* Rota pública do PWA - página inicial */}
+            <Route path="/" element={<HomePage />} />
+            
+            {/* Rota de diagnóstico PWA */}
+            <Route path="/diagnostic" element={<DiagnosticPage />} />
+            
+            {/* Rota de ajuda PWA */}
+            <Route path="/pwa-help" element={<PWAHelpPage />} />
+            
+            {/* Rota de controle de manutenção */}
+            <Route path="/maintenance-control" element={<MaintenanceControlPage />} />
+            
             <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-              <Route path="/" element={<DashboardPage />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/catalogo" element={<CatalogoPage />} />
               <Route path="/sync" element={<SyncPage />} />
               <Route path="/imagens" element={<ImagensPage />} />
