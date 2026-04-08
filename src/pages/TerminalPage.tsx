@@ -5,6 +5,7 @@ import { Barcode, AlertTriangle, Search } from "lucide-react";
 import { suppressNativeKeyboardProps } from "@/components/virtual-keyboard/suppressNativeKeyboard";
 import { VirtualKeyboard } from "@/components/virtual-keyboard/VirtualKeyboard";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { useFullscreen } from "@/hooks/useFullscreen";
 import MaintenanceBanner from "@/components/MaintenanceBanner";
 import { useMaintenanceStatus } from "@/hooks/useMaintenanceStatus";
 import { useInfinitePolling } from "@/hooks/useInfinitePolling";
@@ -761,6 +762,8 @@ const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 const SUPABASE_FUNCTION_HEADERS = getSupabaseFunctionHeaders();
 
 export default function TerminalPage() {
+  // ---- Fullscreen + Wake Lock ----
+  useFullscreen(true);
   // ---- Sistema de Manutenção Manual ----
   const { 
     isUnderMaintenance, 

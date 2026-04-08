@@ -55,25 +55,49 @@ export default defineConfig(({ mode }) => ({
         ]
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2,jpg,jpeg}"],
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2,jpg,jpeg,json}"],
         navigateFallback: "/index.html",
+        navigateFallbackDenylist: [/^\/~oauth/, /^\/api\//],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/.*\.(png|jpg|jpeg|svg|gif)$/,
+            urlPattern: /^https:\/\/.*supabase.*\/rest\/v1\//,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'supabase-api-cache',
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 7 * 24 * 60 * 60,
+              },
+              networkTimeoutSeconds: 5,
+            },
+          },
+          {
+            urlPattern: /^https:\/\/.*supabase.*\/functions\//,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'edge-functions-cache',
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 24 * 60 * 60,
+              },
+              networkTimeoutSeconds: 8,
+            },
+          },
+          {
+            urlPattern: /^https:\/\/.*\.(png|jpg|jpeg|svg|gif|webp)$/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'images-cache',
               expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+                maxEntries: 200,
+                maxAgeSeconds: 30 * 24 * 60 * 60,
               },
             },
           },
         ],
       },
       devOptions: {
-        enabled: true,
-        type: 'module',
+        enabled: false,
       },
     }),
     mode === "development" && componentTagger(),
