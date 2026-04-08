@@ -856,7 +856,18 @@ export default function TerminalPage() {
     const device_name = sanitizeTerminalDeviceName(lastKnownDevice.device_name || "") || "Terminal";
     const loja_numero = normalizeLojaNumero(lastKnownDevice.loja_numero || "");
     const device_key = String(lastKnownDevice.device_key || "").trim();
-    if (!id || !empresa_code || !loja_numero) return;
+    if (!id || !empresa_code) {
+      setWizardError("Dados do dispositivo incompletos. Faça um novo cadastro.");
+      return;
+    }
+    if (!loja_numero) {
+      // Pre-fill wizard with known data and let user complete missing loja_numero
+      setWizardEmpresaCode(empresa_code);
+      setWizardDeviceName(device_name);
+      setWizardLojaNumero("");
+      setWizardError("Número da loja não cadastrado. Complete o cadastro.");
+      return;
+    }
 
     localStorage.setItem("mupa_device_id", id);
     localStorage.setItem("mupa_empresa_id", empresa_id);
