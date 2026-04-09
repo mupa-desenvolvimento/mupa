@@ -2728,7 +2728,11 @@ export default function TerminalPage() {
     const interval = window.setInterval(focus, 200);
     focus();
 
-    const onPointerDown = () => window.setTimeout(focus, 50);
+    const onPointerDown = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".mupa-virtual-keyboard")) return;
+      window.setTimeout(focus, 50);
+    };
     window.addEventListener("pointerdown", onPointerDown, true);
     window.addEventListener("touchstart", onPointerDown, true);
     const onVisibility = () => {
@@ -3364,7 +3368,7 @@ export default function TerminalPage() {
                   onBackspace={backspaceWizard}
                   onEnter={wizardNext}
                   dark
-                  className="w-full h-full border-t-0 border-l p-2 shadow-none"
+                  className="mupa-virtual-keyboard w-full h-full border-t-0 border-l p-2 shadow-none"
                 />
               </div>
             )}
@@ -3554,6 +3558,7 @@ export default function TerminalPage() {
                 onBackspace={backspaceWizard}
                 onEnter={wizardNext}
                 dark
+                className="mupa-virtual-keyboard"
               />
             )}
           </>
