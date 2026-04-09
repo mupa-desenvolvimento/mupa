@@ -35,6 +35,15 @@ const keyBtn = (dark: boolean) =>
       : "border-border/80 bg-background",
   );
 
+/**
+ * Prevent focus from leaving the hidden input.
+ * We only call preventDefault — we do NOT stopPropagation so that
+ * the click event still fires normally.
+ */
+const preventFocusLoss = (e: React.MouseEvent | React.PointerEvent | React.TouchEvent) => {
+  e.preventDefault();
+};
+
 export function VirtualKeyboard({
   mode,
   onKey,
@@ -55,7 +64,8 @@ export function VirtualKeyboard({
         dark ? "border-white/10 bg-slate-950/95" : "border-border bg-muted/95",
         className,
       )}
-      onPointerDown={(e) => e.preventDefault()}
+      onMouseDown={preventFocusLoss}
+      onPointerDown={preventFocusLoss}
     >
       <div className="mx-auto flex max-w-3xl flex-col gap-1.5">
         {rows.map((row, ri) => (

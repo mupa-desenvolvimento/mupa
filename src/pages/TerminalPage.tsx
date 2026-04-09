@@ -1,9 +1,14 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
-import { Barcode } from "lucide-react";
+import { Barcode, AlertTriangle, Search } from "lucide-react";
 import { suppressNativeKeyboardProps } from "@/components/virtual-keyboard/suppressNativeKeyboard";
 import { VirtualKeyboard } from "@/components/virtual-keyboard/VirtualKeyboard";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import { useFullscreen } from "@/hooks/useFullscreen";
+import MaintenanceBanner from "@/components/MaintenanceBanner";
+import { useMaintenanceStatus } from "@/hooks/useMaintenanceStatus";
+import { useInfinitePolling } from "@/hooks/useInfinitePolling";
 
 interface Produto {
   ean: string;
@@ -15,6 +20,7 @@ interface Produto {
   preco_lista?: number;
   disponivel?: boolean;
   imagem_url_vtex?: string;
+  link_imagem?: string;
   imagem_url_sem_fundo?: string;
   unidade_medida?: string;
   multiplicador?: number;
@@ -274,6 +280,75 @@ function cleanImageUrl(raw: string | undefined) {
     .replace(/^"+|"+$/g, "")
     .replace(/^'+|'+$/g, "")
     .trim();
+}
+
+function formatApiError(message: string) {
+  const m = String(message || "").trim();
+  if (!m) return "Não foi possível consultar o produto.";
+  if (/abort/i.test(m) || /timeout/i.test(m)) return "Tempo esgotado ao consultar o produto. Verifique a conexão.";
+  if (/404/.test(m) || /não encontrada/i.test(m)) return "Produto não encontrado na API.";
+  if (/network/i.test(m) || /fetch/i.test(m)) return "Falha de rede ao consultar o produto.";
+  return `Falha na consulta: ${m}`;
+}
+
+function normalizeSugestoesPayload(input: unknown): Sugestoes | null {
+  const shaped = input as { sugestoes?: unknown } | null;
+  const raw = shaped && typeof shaped === "object" && "sugestoes" in shaped ? (shaped as { sugestoes?: unknown }).sugestoes : input;
+  const rec = asRecord(raw);
+  if (!rec) return null;
+
+  const normalizeItem = (v: unknown): Sugestao | null => {
+    const r = asRecord(v);
+    if (!r) return null;
+    const ean = String(r.ean ?? r.codigo_barras ?? r.barcode ?? "").replace(/\D/g, "").trim();
+    if (!ean) return null;
+    const nome = String(r.nome ?? r.nome_curto ?? "Produto").trim() || "Produto";
+    const preco = parseNumber(r.preco);
+    const precoLista = parseNumber(r.preco_lista);
+    const img =
+      typeof r.imagem_url_vtex === "string"
+        ? cleanImageUrl(r.imagem_url_vtex)
+        : typeof r.link_imagem === "string"
+          ? cleanImageUrl(r.link_imagem)
+          : typeof r.image_url === "string"
+            ? cleanImageUrl(r.image_url)
+            : typeof r.url === "string"
+              ? cleanImageUrl(r.url)
+              : "";
+    const motivo = typeof r.motivo === "string" ? r.motivo : undefined;
+
+    return {
+      ean,
+      nome,
+      nome_curto: typeof r.nome_curto === "string" ? r.nome_curto : undefined,
+      marca: typeof r.marca === "string" ? r.marca : undefined,
+      categoria: typeof r.categoria === "string" ? r.categoria : undefined,
+      preco: preco ?? undefined,
+      preco_lista: precoLista ?? undefined,
+      disponivel: typeof r.disponivel === "boolean" ? r.disponivel : undefined,
+      imagem_url_vtex: img || undefined,
+      link_imagem: typeof r.link_imagem === "string" ? cleanImageUrl(r.link_imagem) : undefined,
+      unidade_medida: typeof r.unidade_medida === "string" ? r.unidade_medida : undefined,
+      multiplicador: parseNumber(r.multiplicador) ?? undefined,
+      motivo,
+    };
+  };
+
+  const normalizeList = (v: unknown) => {
+    if (!Array.isArray(v)) return [];
+    const out: Sugestao[] = [];
+    for (const item of v) {
+      const n = normalizeItem(item);
+      if (n) out.push(n);
+    }
+    return out;
+  };
+
+  return {
+    mesma_marca: normalizeList(rec.mesma_marca),
+    complementares: normalizeList(rec.complementares),
+    perfil: normalizeList(rec.perfil),
+  };
 }
 
 function getSupabaseFunctionHeaders() {
@@ -657,9 +732,29 @@ async function generateThemeFromImage(imageUrl: string): Promise<ProductTheme> {
   const cached = themeCache.get(imageUrl);
   if (cached) return cached;
 
-  const palette = await extractPalette(imageUrl);
+  let palette = await extractPalette(imageUrl);
+  if (palette.length === 0 && /^https?:/i.test(imageUrl)) {
+    try {
+      const proxyUrl = `${BASE_URL}/api-image-proxy?url=${encodeURIComponent(imageUrl)}`;
+      const res = await fetchWithTimeout(proxyUrl, { headers: { ...SUPABASE_FUNCTION_HEADERS }, cache: "force-cache" }, 8000);
+      if (res.ok) {
+        const blob = await res.blob();
+        const objUrl = URL.createObjectURL(blob);
+        try {
+          palette = await extractPalette(objUrl);
+        } finally {
+          URL.revokeObjectURL(objUrl);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const theme = _generateTheme(palette);
-  themeCache.set(imageUrl, theme);
+  if (palette.length > 0) {
+    themeCache.set(imageUrl, theme);
+  }
   return theme;
 }
 
@@ -667,10 +762,27 @@ const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 const SUPABASE_FUNCTION_HEADERS = getSupabaseFunctionHeaders();
 
 export default function TerminalPage() {
+  // ---- Fullscreen + Wake Lock ----
+  useFullscreen(true);
+  // ---- Sistema de Manutenção Manual ----
+  const { 
+    isUnderMaintenance, 
+    maintenanceMessage, 
+    isLoading: maintenanceLoading,
+    error: maintenanceError,
+    forceCheck: forceMaintenanceCheck 
+  } = useMaintenanceStatus({
+    checkInterval: 30000, // 30 segundos
+    retryDelay: 5000, // 5 segundos
+    maxRetries: Infinity, // retry infinito
+  });
+
   // ── Device activation state ──
   const [deviceActivated, setDeviceActivated] = useState<boolean>(() => {
     return !!localStorage.getItem("mupa_device_id");
   });
+  const deviceValidationRef = useRef<{ checked: boolean; key: string }>({ checked: false, key: "" });
+  const deviceKeyNotFoundRef = useRef<string>("");
   const [lastKnownDevice, setLastKnownDevice] = useState(() => {
     const id = localStorage.getItem("mupa_last_device_id") || "";
     const empresa_id = localStorage.getItem("mupa_last_empresa_id") || "";
@@ -708,6 +820,7 @@ export default function TerminalPage() {
   const [precoConfigReady, setPrecoConfigReady] = useState(false);
   const [precoConfigError, setPrecoConfigError] = useState<string | null>(null);
   const [precoConfigUpdatedAt, setPrecoConfigUpdatedAt] = useState<string | null>(null);
+  const precoConfigReqRef = useRef(0);
 
   const produtosByEanRef = useRef<Record<string, Produto>>({});
 
@@ -743,7 +856,18 @@ export default function TerminalPage() {
     const device_name = sanitizeTerminalDeviceName(lastKnownDevice.device_name || "") || "Terminal";
     const loja_numero = normalizeLojaNumero(lastKnownDevice.loja_numero || "");
     const device_key = String(lastKnownDevice.device_key || "").trim();
-    if (!id || !empresa_code || !loja_numero) return;
+    if (!id || !empresa_code) {
+      setWizardError("Dados do dispositivo incompletos. Faça um novo cadastro.");
+      return;
+    }
+    if (!loja_numero) {
+      // Pre-fill wizard with known data and let user complete missing loja_numero
+      setWizardEmpresaCode(empresa_code);
+      setWizardDeviceName(device_name);
+      setWizardLojaNumero("");
+      setWizardError("Número da loja não cadastrado. Complete o cadastro.");
+      return;
+    }
 
     localStorage.setItem("mupa_device_id", id);
     localStorage.setItem("mupa_empresa_id", empresa_id);
@@ -773,6 +897,7 @@ export default function TerminalPage() {
     if (deviceActivated) return;
     const key = (urlDeviceKey || "").trim();
     if (!key) return;
+    if (deviceKeyNotFoundRef.current === key) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -811,7 +936,13 @@ export default function TerminalPage() {
             dev = res.data as typeof dev;
           }
         }
-        if (!dev?.id || !dev.empresa_id) return;
+        if (!dev?.id || !dev.empresa_id) {
+          if (cancelled) return;
+          deviceKeyNotFoundRef.current = key;
+          resetToWizard();
+          setWizardError("Dispositivo não cadastrado. Faça um novo cadastro.");
+          return;
+        }
         const { data: emp, error: empErr } = await sb
           .from("empresas")
           .select("codigo_vinculo")
@@ -820,7 +951,13 @@ export default function TerminalPage() {
         if (empErr) throw empErr;
         const empresa_code = normalizeEmpresaCode((emp as { codigo_vinculo?: string | null } | null)?.codigo_vinculo ?? "");
         const loja_numero = normalizeLojaNumero(String((dev as { loja_numero?: string | null }).loja_numero ?? ""));
-        if (!empresa_code || !loja_numero) return;
+        if (!empresa_code || !loja_numero) {
+          if (cancelled) return;
+          deviceKeyNotFoundRef.current = key;
+          resetToWizard();
+          setWizardError("Dispositivo cadastrado sem configuração completa. Faça um novo cadastro.");
+          return;
+        }
         if (cancelled) return;
         setDetectedDevice({
           id: dev.id,
@@ -838,70 +975,108 @@ export default function TerminalPage() {
     return () => {
       cancelled = true;
     };
-  }, [deviceActivated, urlDeviceKey]);
+  }, [deviceActivated, resetToWizard, urlDeviceKey]);
 
   const resolveEmpresaContext = useCallback(async (): Promise<{ codigo_empresa: string; numero_loja: string; empresa_id: string } | null> => {
-    let code = empresaCode;
-    if (!code) {
-      const empresaId = localStorage.getItem("mupa_empresa_id") || deviceEmpresa;
-      if (empresaId) {
-        const { data } = await supabase.from("empresas").select("codigo_vinculo").eq("id", empresaId).maybeSingle();
-        const next = normalizeEmpresaCode((data as { codigo_vinculo?: string | null } | null)?.codigo_vinculo ?? "");
-        if (next) {
-          code = next;
-          localStorage.setItem("mupa_empresa_code", next);
-          setEmpresaCode(next);
-        }
-      }
-    }
-
+    const code = normalizeEmpresaCode(localStorage.getItem("mupa_empresa_code") || empresaCode || "");
     const loja = normalizeLojaNumero(lojaNumeroAtivo || localStorage.getItem("mupa_loja_numero") || "");
+    if (code && code !== empresaCode) setEmpresaCode(code);
     if (loja && loja !== lojaNumeroAtivo) setLojaNumeroAtivo(loja);
     if (!code || !isValidEmpresaCode(code) || !loja) return null;
-
-    const { data: emp, error: empErr } = await supabase
-      .from("empresas")
-      .select("id, ativo")
-      .eq("codigo_vinculo", code)
-      .maybeSingle();
-    if (empErr) throw empErr;
-    if (!emp || emp.ativo === false) return null;
-    return { codigo_empresa: code, numero_loja: loja, empresa_id: emp.id as string };
+    const empresaId = localStorage.getItem("mupa_empresa_id") || deviceEmpresa || "";
+    return { codigo_empresa: code, numero_loja: loja, empresa_id: empresaId };
   }, [deviceEmpresa, empresaCode, lojaNumeroAtivo]);
 
   const ensureEmpresaPrecoConfigLoaded = useCallback(async () => {
     if (!deviceActivated) return;
+    const reqId = ++precoConfigReqRef.current;
     setPrecoConfigLoading(true);
     setPrecoConfigError(null);
     try {
-      const ctx = await resolveEmpresaContext();
-      if (!ctx) throw new Error("Configuração incompleta. Revise código da empresa e número da loja.");
+      await Promise.race([
+        (async () => {
+          const ctx = await resolveEmpresaContext();
+          let codigoEmpresa = ctx?.codigo_empresa || "";
+          let lojaNumero = ctx?.numero_loja || "";
 
-      const ckey = cacheKeyForEmpresaPrecoConfig(ctx.codigo_empresa);
-      const cached = await cacheGetJson<{ v: 1; updated_at: string; ok: boolean }>(ckey);
-      if (cached && cached.v === 1 && cached.ok) {
-        setPrecoConfigUpdatedAt(cached.updated_at);
-        setPrecoConfigReady(true);
-      }
+          if ((!codigoEmpresa || !lojaNumero) && navigator.onLine) {
+            const deviceId = localStorage.getItem("mupa_device_id") || "";
+            const deviceKey = localStorage.getItem("mupa_device_key") || "";
+            const q = deviceId ? `device_id=${encodeURIComponent(deviceId)}` : deviceKey ? `device_id=${encodeURIComponent(deviceKey)}` : "";
+            if (q) {
+              const { res, json } = await fetchJsonWithTimeout(`${BASE_URL}/api-device-lookup?${q}`, {
+                method: "GET",
+                headers: { ...SUPABASE_FUNCTION_HEADERS },
+              }, 8000);
+              if (res.ok) {
+                const payload = json as {
+                  found?: boolean;
+                  dispositivo?: { loja_numero?: string | null };
+                  empresa?: { codigo_vinculo?: string | null };
+                } | null;
+                if (payload?.found) {
+                  const nextCode = normalizeEmpresaCode(payload?.empresa?.codigo_vinculo ?? "");
+                  const nextLoja = normalizeLojaNumero(payload?.dispositivo?.loja_numero ?? "");
+                  if (nextCode) {
+                    codigoEmpresa = nextCode;
+                    localStorage.setItem("mupa_empresa_code", nextCode);
+                  }
+                  if (nextLoja) {
+                    lojaNumero = nextLoja;
+                    localStorage.setItem("mupa_loja_numero", nextLoja);
+                  }
+                  if (precoConfigReqRef.current === reqId) {
+                    if (nextCode) setEmpresaCode(nextCode);
+                    if (nextLoja) setLojaNumeroAtivo(nextLoja);
+                  }
+                }
+              }
+            }
+          }
 
-      if (!navigator.onLine) {
-        if (cached && cached.v === 1 && cached.ok) return;
-        throw new Error("Sem internet e sem cache da configuração de preço para esta empresa.");
-      }
+          if (!codigoEmpresa || !isValidEmpresaCode(codigoEmpresa) || !lojaNumero) {
+            throw new Error("Configuração incompleta. Revise código da empresa e número da loja.");
+          }
 
-      const { res, json } = await fetchJsonWithTimeout(`${BASE_URL}/api-consulta-preco`, {
-        method: "POST",
-        headers: { ...SUPABASE_FUNCTION_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "status", codigo_empresa: ctx.codigo_empresa }),
-      }, 8000);
-      const payload = json as { ok?: boolean; has_config?: boolean; error?: string } | null;
-      if (!res.ok) throw new Error(payload?.error || "Falha ao validar configuração de preço");
-      if (!payload?.has_config) throw new Error("Configuração de consulta de preço não encontrada para esta empresa.");
+          const ckey = cacheKeyForEmpresaPrecoConfig(codigoEmpresa);
+          const cached = await cacheGetJson<{ v: 1; updated_at: string; ok: boolean }>(ckey);
+          if (cached && cached.v === 1 && cached.ok && precoConfigReqRef.current === reqId) {
+            setPrecoConfigUpdatedAt(cached.updated_at);
+            setPrecoConfigReady(true);
+          }
 
-      const next = { v: 1 as const, updated_at: new Date().toISOString(), ok: true };
-      await cacheSetJson(ckey, next);
-      setPrecoConfigUpdatedAt(next.updated_at);
-      setPrecoConfigReady(true);
+          if (!navigator.onLine) {
+            if (cached && cached.v === 1 && cached.ok) return;
+            throw new Error("Sem internet e sem cache da configuração de preço para esta empresa.");
+          }
+
+          const { res, json } = await fetchJsonWithTimeout(`${BASE_URL}/api-consulta-preco`, {
+            method: "POST",
+            headers: { ...SUPABASE_FUNCTION_HEADERS, "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "status", codigo_empresa: codigoEmpresa }),
+          }, 8000);
+          const payload = json as { ok?: boolean; has_config?: boolean; error?: string } | null;
+          if (!res.ok) {
+            if (res.status === 404) throw new Error("Edge Function api-consulta-preco não encontrada. Publique as functions no Supabase.");
+            throw new Error(payload?.error || "Falha ao validar configuração de preço");
+          }
+          if (!payload?.has_config) throw new Error("Configuração de consulta de preço não encontrada para esta empresa.");
+
+          const next = { v: 1 as const, updated_at: new Date().toISOString(), ok: true };
+          await cacheSetJson(ckey, next);
+          if (precoConfigReqRef.current === reqId) {
+            setPrecoConfigUpdatedAt(next.updated_at);
+            setPrecoConfigReady(true);
+          }
+        })(),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => {
+            const err = new Error("Timeout");
+            (err as { name: string }).name = "AbortError";
+            reject(err);
+          }, 12000);
+        }),
+      ]);
     } catch (e: unknown) {
       const message =
         e instanceof Error && e.name === "AbortError"
@@ -909,27 +1084,44 @@ export default function TerminalPage() {
           : e instanceof Error
             ? e.message
             : "Erro ao carregar configuração de preço";
-      setPrecoConfigError(message);
-      setPrecoConfigReady(false);
+      if (precoConfigReqRef.current === reqId) {
+        setPrecoConfigError(message);
+        setPrecoConfigReady(false);
+      }
     } finally {
-      setPrecoConfigLoading(false);
+      if (precoConfigReqRef.current === reqId) setPrecoConfigLoading(false);
     }
-  }, [deviceActivated, resolveEmpresaContext]);
+  }, [deviceActivated, empresaCode, lojaNumeroAtivo, resolveEmpresaContext]);
 
   useEffect(() => {
     if (!deviceActivated) return;
     void ensureEmpresaPrecoConfigLoaded();
   }, [deviceActivated, ensureEmpresaPrecoConfigLoaded]);
 
-  useEffect(() => {
-    if (!deviceActivated) return;
-    const intervalMs = 10 * 60 * 1000;
-    const t = window.setInterval(() => {
-      if (!navigator.onLine) return;
-      void ensureEmpresaPrecoConfigLoaded();
-    }, intervalMs);
-    return () => window.clearInterval(t);
-  }, [deviceActivated, ensureEmpresaPrecoConfigLoaded]);
+  // ---- Sistema de Polling Infinito (nunca para) ----
+  const { 
+    data: precoConfigData, 
+    isLoading: precoConfigPollingLoading, 
+    error: precoConfigPollingError,
+    forceUpdate: forcePrecoConfigUpdate 
+  } = useInfinitePolling(
+    async () => {
+      if (!deviceActivated) return null;
+      await ensureEmpresaPrecoConfigLoaded();
+      return { timestamp: Date.now() };
+    },
+    {
+      interval: 5 * 60 * 1000, // 5 minutos (mais frequente)
+      retryDelay: 10000, // 10 segundos entre tentativas
+      maxRetries: Infinity, // nunca para de tentar
+      onError: (error) => {
+        console.log('Erro no polling de configuração, tentando novamente...', error.message);
+      },
+      onSuccess: () => {
+        console.log('Configuração atualizada com sucesso');
+      }
+    }
+  );
 
   const loadGroupsForWizard = useCallback(async () => {
     try {
@@ -954,6 +1146,7 @@ export default function TerminalPage() {
     deviceName: string;
     grupoId: string | null;
     lojaNumero: string;
+    deviceId?: string;
   }) => {
     const codigoEmpresa = normalizeEmpresaCode(args.codigoEmpresa);
     const deviceName = sanitizeTerminalDeviceName(args.deviceName) || "Terminal";
@@ -963,7 +1156,7 @@ export default function TerminalPage() {
     setActivatingDevice(true);
     setWizardError(null);
     try {
-      const deviceId = localStorage.getItem("mupa_device_id");
+      const deviceId = args.deviceId || localStorage.getItem("mupa_device_id");
       const deviceKey = localStorage.getItem("mupa_device_key");
       const { res, json } = await fetchJsonWithTimeout(`${BASE_URL}/api-ativar-dispositivo`, {
         method: "POST",
@@ -971,6 +1164,7 @@ export default function TerminalPage() {
         body: JSON.stringify({
           codigo_empresa: codigoEmpresa,
           device_id: deviceId || deviceKey || null,
+          device_key: deviceKey || null,
           device_name: deviceName,
           grupo_id: grupoId,
           loja_numero: lojaNumero || null,
@@ -1030,6 +1224,34 @@ export default function TerminalPage() {
     if (empresaId) setDeviceEmpresa(empresaId);
   }, []);
 
+  useEffect(() => {
+    if (!deviceActivated) return;
+    if (deviceValidationRef.current.checked) return;
+    const deviceId = String(localStorage.getItem("mupa_device_id") || "").trim();
+    const deviceKey = String(localStorage.getItem("mupa_device_key") || "").trim();
+    const q = deviceId ? deviceId : deviceKey;
+    if (!q) return;
+    deviceValidationRef.current = { checked: true, key: q };
+
+    void (async () => {
+      try {
+        const { res, json } = await fetchJsonWithTimeout(
+          `${BASE_URL}/api-device-lookup?device_id=${encodeURIComponent(q)}`,
+          { method: "GET", headers: { ...SUPABASE_FUNCTION_HEADERS } },
+          8000,
+        );
+        if (!res.ok) return;
+        const payload = json as { found?: boolean } | null;
+        if (payload?.found === false) {
+          resetToWizard();
+          setWizardError("Dispositivo não encontrado na plataforma. Faça um novo cadastro.");
+        }
+      } catch {
+        return;
+      }
+    })();
+  }, [deviceActivated, resetToWizard]);
+
   const [ean, setEan] = useState("");
   const [produto, setProduto] = useState<Produto | null>(null);
   const [sugestoes, setSugestoes] = useState<Sugestoes | null>(null);
@@ -1070,23 +1292,90 @@ export default function TerminalPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const hiddenInputRef = useRef<HTMLInputElement>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const scanTrapRef = useRef<HTMLDivElement>(null);
   const scanBufferRef = useRef("");
   const scanLastKeyTsRef = useRef(0);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const terminalEanChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const [scanFocused, setScanFocused] = useState(false);
   const scanFocusedRef = useRef(false);
+  const scanFocusLoopRef = useRef<number | null>(null);
+
+  const isAndroidWebView = useMemo(() => {
+    const ua = navigator.userAgent || "";
+    const wv = /\bwv\b/i.test(ua) || /; wv\)/i.test(ua);
+    const rn = typeof (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView !== "undefined";
+    return /Android/i.test(ua) && (wv || rn);
+  }, []);
 
   const focusScanInput = useCallback(() => {
-    const el = scanInputRef.current;
+    const el = (isAndroidWebView ? scanTrapRef.current : scanInputRef.current) || scanInputRef.current;
     if (!el) return;
-    el.focus({ preventScroll: true });
     try {
-      el.setSelectionRange(0, el.value.length);
+      (el as unknown as { focus: (opts?: unknown) => void }).focus?.({ preventScroll: true });
+      el.dispatchEvent(new Event("focus", { bubbles: true }));
     } catch {
       return;
     }
-  }, []);
+    try {
+      const inputEl = scanInputRef.current;
+      if (inputEl) inputEl.setSelectionRange(0, inputEl.value.length);
+    } catch {
+      return;
+    }
+    if (!scanFocusedRef.current) {
+      scanFocusedRef.current = true;
+      setScanFocused(true);
+    }
+  }, [isAndroidWebView]);
+
+  useEffect(() => {
+    if (!deviceActivated || !precoConfigReady) return;
+
+    const attempt = () => {
+      if (document.visibilityState !== "visible") return;
+      const el = scanInputRef.current;
+      if (!el) return;
+      if (document.activeElement === el) return;
+      focusScanInput();
+    };
+
+    const timers: number[] = [];
+    timers.push(window.setTimeout(attempt, 0));
+    timers.push(window.setTimeout(attempt, 80));
+    timers.push(window.setTimeout(attempt, 250));
+    timers.push(window.setTimeout(attempt, 700));
+    timers.push(window.setTimeout(attempt, 1500));
+
+    const onVisibility = () => attempt();
+    const onWindowFocus = () => attempt();
+    const onPageShow = () => attempt();
+    const onPointerDown = () => attempt();
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onWindowFocus);
+    window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("pointerdown", onPointerDown, { passive: true });
+    window.addEventListener("touchstart", onPointerDown, { passive: true });
+    window.addEventListener("mousedown", onPointerDown, { passive: true });
+
+    if (scanFocusLoopRef.current) window.clearInterval(scanFocusLoopRef.current);
+    scanFocusLoopRef.current = window.setInterval(attempt, 900);
+
+    return () => {
+      for (const t of timers) window.clearTimeout(t);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onWindowFocus);
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("touchstart", onPointerDown);
+      window.removeEventListener("mousedown", onPointerDown);
+      if (scanFocusLoopRef.current) {
+        window.clearInterval(scanFocusLoopRef.current);
+        scanFocusLoopRef.current = null;
+      }
+    };
+  }, [deviceActivated, precoConfigReady, focusScanInput]);
 
   const activeTheme = useMemo<ProductTheme>(() => {
     if (corAutoEnabled && theme) return theme;
@@ -1117,24 +1406,37 @@ export default function TerminalPage() {
     return () => { document.removeEventListener("visibilitychange", onVisibilityChange); wakeLock?.release(); };
   }, []);
 
+  // ---- Fullscreen Simplificado (sem interferência na operação) ----
   useEffect(() => {
-    const enterFullscreen = async () => {
+    const tryFullscreen = async () => {
       const node = containerRef.current;
-      if (!node) return;
+      if (!node || document.fullscreenElement) return;
+      
       try {
-        if (!document.fullscreenElement) await node.requestFullscreen();
-      } catch {
-        return;
+        await node.requestFullscreen();
+      } catch (error) {
+        // Silenciosamente ignorar falhas de fullscreen
+        console.log('Fullscreen não disponível, operação continua normal');
       }
     };
 
-    void enterFullscreen();
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void enterFullscreen();
+    // Tentar fullscreen apenas uma vez após carregar
+    const timeoutId = setTimeout(() => {
+      void tryFullscreen();
+    }, 1000);
+
+    // Tentar novamente quando a página ficar visível
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && !document.fullscreenElement) {
+        setTimeout(() => void tryFullscreen(), 500);
+      }
     };
-    document.addEventListener("visibilitychange", onVisibility);
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
+      clearTimeout(timeoutId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
@@ -1409,14 +1711,6 @@ export default function TerminalPage() {
     return () => { supabase.removeChannel(channel); };
   }, [persistMediaManifest, prefetchMediaFiles]);
 
-  useEffect(() => {
-    if (error) {
-      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
-      errorTimerRef.current = setTimeout(() => setError(null), 3000);
-    }
-    return () => { if (errorTimerRef.current) clearTimeout(errorTimerRef.current); };
-  }, [error]);
-
   const isIdle = !produto && !loading && !error;
   const [offlineMediaUrl, setOfflineMediaUrl] = useState<string | null>(null);
   const offlineMediaUrlRef = useRef<string | null>(null);
@@ -1475,6 +1769,50 @@ export default function TerminalPage() {
     } catch { return; }
   }, []);
 
+  const playErrorBeep = useCallback(() => {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = "square";
+      osc.frequency.setValueAtTime(440, ctx.currentTime);
+      osc.frequency.setValueAtTime(330, ctx.currentTime + 0.18);
+      gain.gain.setValueAtTime(0.28, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.42);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.42);
+    } catch { return; }
+  }, []);
+
+  const speakError = useCallback((text: string) => {
+    try {
+      const msg = String(text || "").trim();
+      if (!msg) return;
+      const synth = window.speechSynthesis;
+      if (!synth || typeof (window as unknown as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance === "undefined") return;
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(msg);
+      u.lang = "pt-BR";
+      u.rate = 1;
+      u.pitch = 1;
+      u.volume = 1;
+      synth.speak(u);
+    } catch {
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (error) {
+      playErrorBeep();
+      speakError(error);
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+      errorTimerRef.current = setTimeout(() => setError(null), 4500);
+    }
+    return () => { if (errorTimerRef.current) clearTimeout(errorTimerRef.current); };
+  }, [error, playErrorBeep, speakError]);
+
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const returnTimerRef = useRef<number | null>(null);
   const productImageObjectUrlRef = useRef<string | null>(null);
@@ -1506,6 +1844,7 @@ export default function TerminalPage() {
         await Promise.allSettled([
           mode === "all" ? caches.delete("mupa-media-v1") : Promise.resolve(false),
           caches.delete("mupa-nobg-v1"),
+          caches.delete("mupa-nobg-v2"),
         ]);
       }
     } catch {
@@ -1621,10 +1960,74 @@ export default function TerminalPage() {
       nome: String(prod.nome ?? "Produto"),
       preco: parseNumber(prod.preco) ?? undefined,
       preco_lista: parseNumber(prod.preco_lista) ?? undefined,
-      imagem_url_vtex: typeof prod.imagem_url_vtex === "string" ? cleanImageUrl(prod.imagem_url_vtex) : undefined,
+      imagem_url_vtex:
+        typeof prod.imagem_url_vtex === "string"
+          ? cleanImageUrl(prod.imagem_url_vtex)
+          : typeof prod.link_imagem === "string"
+            ? cleanImageUrl(prod.link_imagem)
+            : typeof prod.image_url === "string"
+              ? cleanImageUrl(prod.image_url)
+              : undefined,
+      link_imagem: typeof prod.link_imagem === "string" ? cleanImageUrl(prod.link_imagem) : undefined,
       disponivel: true,
     };
   }, []);
+
+  const updateSugestoesPricesInBackground = useCallback((base: Sugestoes, codigoEmpresa: string, numeroLoja: string) => {
+    if (!navigator.onLine) return;
+    runInBackground(() => {
+      void (async () => {
+        try {
+          const all = [
+            ...(base.complementares || []),
+            ...(base.mesma_marca || []),
+            ...(base.perfil || []),
+          ];
+          const eans = Array.from(new Set(all.map((s) => String(s.ean ?? "").replace(/\D/g, "").trim()).filter(Boolean)));
+          if (eans.length === 0) return;
+
+          const results: Record<string, Produto> = {};
+          const concurrency = 3;
+          let idx = 0;
+          const worker = async () => {
+            while (idx < eans.length) {
+              const current = eans[idx++];
+              try {
+                const p = await fetchPrecoFromApi(codigoEmpresa, numeroLoja, current);
+                results[current] = p;
+              } catch {
+                continue;
+              }
+            }
+          };
+          await Promise.all(Array.from({ length: Math.min(concurrency, eans.length) }, () => worker()));
+
+          setSugestoes((prev) => {
+            if (!prev) return prev;
+            const patchList = (list: Sugestao[]) => list.map((s) => {
+              const e = String(s.ean ?? "").replace(/\D/g, "").trim();
+              const p = results[e];
+              if (!p) return s;
+              return {
+                ...s,
+                preco: p.preco ?? s.preco,
+                preco_lista: p.preco_lista ?? s.preco_lista,
+                imagem_url_vtex: p.imagem_url_vtex || s.imagem_url_vtex,
+                link_imagem: p.link_imagem || s.link_imagem,
+              };
+            });
+            return {
+              mesma_marca: patchList(prev.mesma_marca || []),
+              complementares: patchList(prev.complementares || []),
+              perfil: patchList(prev.perfil || []),
+            };
+          });
+        } catch {
+          return;
+        }
+      })();
+    });
+  }, [fetchPrecoFromApi]);
 
   // PERF: cache read is used to show instant values (cache-first UI).
   const getCachedPrecoFromStorage = useCallback(async (codigoEmpresa: string, numeroLoja: string, eanDigits: string) => {
@@ -1719,8 +2122,8 @@ export default function TerminalPage() {
   // PERF: background task; caches PNG with transparency and updates current product without blocking consult.
   const processImageBackground = useCallback((p: Produto, codigoEmpresa: string, numeroLoja: string) => {
     const ean = p.ean.replace(/\D/g, "").trim();
-    const imgUrl = cleanImageUrl(p.imagem_url_vtex);
-    if (!ean || !imgUrl) return;
+    const companyImgUrl = cleanImageUrl(p.imagem_url_vtex || p.link_imagem);
+    if (!ean) return;
     if (p.imagem_url_sem_fundo) return;
     const inFlightKey = `${codigoEmpresa}:${numeroLoja}:${ean}`;
     if (noBgInFlightRef.current.has(inFlightKey)) return;
@@ -1730,8 +2133,8 @@ export default function TerminalPage() {
       void (async () => {
         try {
           if (!("caches" in window)) return;
-          const key = `mupa:nobg:v1:${codigoEmpresa}:${numeroLoja}:${ean}`;
-          const cache = await caches.open("mupa-nobg-v1");
+          const key = `mupa:nobg:v2:${codigoEmpresa}:${numeroLoja}:${ean}`;
+          const cache = await caches.open("mupa-nobg-v2");
           const req = new Request(`https://mupa.cache/${encodeURIComponent(key)}`);
           const cached = await cache.match(req);
           if (cached) {
@@ -1744,7 +2147,7 @@ export default function TerminalPage() {
           }
 
           const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
-          const storagePath = `nobg/${codigoEmpresa}/${numeroLoja}/${ean}.png`;
+          const storagePath = `nobg-v2/${codigoEmpresa}/${numeroLoja}/${ean}.png`;
           const storedUrl = supabaseUrl ? `${supabaseUrl}/storage/v1/object/public/produto-nobg/${storagePath}` : "";
           if (storedUrl) {
             const storedRes = await fetch(storedUrl, { cache: "force-cache" }).catch(() => null);
@@ -1756,10 +2159,57 @@ export default function TerminalPage() {
             }
           }
 
-          const proxyUrl = `${BASE_URL}/api-image-proxy?url=${encodeURIComponent(imgUrl)}`;
-          const res = await fetchWithTimeout(proxyUrl, { headers: { ...SUPABASE_FUNCTION_HEADERS }, cache: "force-cache" }, 12000);
-          if (!res.ok) return;
-          const rawBlob = await res.blob();
+          const fetchViaProxy = async (srcUrl: string) => {
+            const proxyUrl = `${BASE_URL}/api-image-proxy?url=${encodeURIComponent(srcUrl)}`;
+            return await fetchWithTimeout(proxyUrl, { headers: { ...SUPABASE_FUNCTION_HEADERS }, cache: "force-cache" }, 12000);
+          };
+
+          const extractUrlFromApiProdutos = (payload: unknown) => {
+            const rec = asRecord(payload);
+            if (!rec) return "";
+            const direct = rec.imagem_url_vtex ?? rec.link_imagem ?? rec.image_url ?? rec.url;
+            if (typeof direct === "string" && cleanImageUrl(direct)) return cleanImageUrl(direct);
+            const nested = asRecord(rec.produto) || asRecord(rec.data) || asRecord(rec.item);
+            if (nested) {
+              const u = nested.imagem_url_vtex ?? nested.link_imagem ?? nested.image_url ?? nested.url;
+              if (typeof u === "string" && cleanImageUrl(u)) return cleanImageUrl(u);
+            }
+            return "";
+          };
+
+          let rawBlob: Blob | null = null;
+
+          // 1) Supabase api-produtos?ean= -> imagem_url_vtex
+          const apiProdutosUrl = `${String(import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "")}/functions/v1/api-produtos?ean=${encodeURIComponent(ean)}`;
+          if (apiProdutosUrl.includes("/functions/v1/api-produtos")) {
+            try {
+              const { res, json } = await fetchJsonWithTimeout(apiProdutosUrl, { method: "GET", headers: { ...SUPABASE_FUNCTION_HEADERS } }, 8000);
+              if (res.ok) {
+                const u = extractUrlFromApiProdutos(json);
+                if (u) {
+                  const imgRes = await fetchViaProxy(u).catch(() => null);
+                  if (imgRes && imgRes.ok) rawBlob = await imgRes.blob();
+                }
+              }
+            } catch {
+              rawBlob = null;
+            }
+          }
+
+          // 2) API Mupa produto-imagem/{ean}
+          if (!rawBlob) {
+            const mupaSrc = `http://srv-mupa.ddns.net:5050/produto-imagem/${encodeURIComponent(ean)}`;
+            const imgRes = await fetchViaProxy(mupaSrc).catch(() => null);
+            if (imgRes && imgRes.ok) rawBlob = await imgRes.blob();
+          }
+
+          // 3) API da empresa (imagem da resposta do produto)
+          if (!rawBlob && companyImgUrl) {
+            const imgRes = await fetchViaProxy(companyImgUrl).catch(() => null);
+            if (imgRes && imgRes.ok) rawBlob = await imgRes.blob();
+          }
+
+          if (!rawBlob) return;
           const outBlob = await _remove_bg_simple(rawBlob);
           await cache.put(req, new Response(outBlob, { headers: { "Content-Type": "image/png" } }));
           const objUrl = URL.createObjectURL(outBlob);
@@ -1853,7 +2303,12 @@ export default function TerminalPage() {
   }, [fetchPrecoFromApi, processImageBackground]);
 
   const consultar = useCallback(async (code?: string) => {
-    const searchEan = (code || ean).replace(/\D/g, "").trim();
+    const raw = String(code ?? ean ?? "").trim();
+    const digitsAll = raw.replace(/\D/g, "").trim();
+    let searchEan = digitsAll;
+    if (digitsAll.length >= 5 && digitsAll.slice(0, 1) === "2") {
+      searchEan = digitsAll.slice(1, 5);
+    }
     if (!searchEan) return;
     setEan("");
     if (beepEnabled) playBeep();
@@ -1877,6 +2332,23 @@ export default function TerminalPage() {
         setProduto(cachedMem);
         processImageBackground(cachedMem, codigoEmpresa, numeroLoja);
         void updateProductInBackground(searchEan, cachedMem, codigoEmpresa, numeroLoja);
+
+        const sugPromise = (maxSugestoes ?? 0) > 0
+          ? fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=${maxSugestoes || 3}`, { headers: { ...SUPABASE_FUNCTION_HEADERS } })
+            .then(r => r.json())
+            .then((d: unknown) => {
+              const next = normalizeSugestoesPayload(d);
+              setSugestoes(next);
+              if (next) updateSugestoesPricesInBackground(next, codigoEmpresa, numeroLoja);
+              return !!next && (
+                (next.mesma_marca?.length || 0) +
+                (next.complementares?.length || 0) +
+                (next.perfil?.length || 0)
+              ) > 0;
+            })
+            .catch(() => false)
+          : null;
+        if (!sugPromise) setSugestoes(null);
         terminalEanChannelRef.current
           ?.send({
             type: "broadcast",
@@ -1885,20 +2357,44 @@ export default function TerminalPage() {
           })
           .catch(() => undefined);
 
-        if (ttsEnabled && cachedMem.preco) {
-          const audio = await speakPrice(cachedMem.preco, cachedMem.preco_lista, tipoSugestao);
-          armReturnToIdle(audio, 8000);
+        setLoading(false);
+
+        if (ttsEnabled && typeof cachedMem.preco === "number") {
+          let speakProduto: Produto = cachedMem;
+          if (navigator.onLine) {
+            const maybeLatest = await Promise.race([
+              fetchPrecoFromApi(codigoEmpresa, numeroLoja, searchEan),
+              new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 900)),
+            ]);
+            if (maybeLatest && typeof maybeLatest.preco === "number" && (maybeLatest.preco ?? null) !== (cachedMem.preco ?? null)) {
+              speakProduto = maybeLatest;
+              produtosByEanRef.current[searchEan] = maybeLatest;
+              const ckey = cacheKeyForPreco(codigoEmpresa, numeroLoja, searchEan);
+              await cacheSetJson(ckey, { v: 1, codigo_empresa: codigoEmpresa, numero_loja: numeroLoja, ean: searchEan, updated_at: new Date().toISOString(), produto: maybeLatest });
+              setProduto((p) => (p && p.ean === searchEan ? { ...p, ...maybeLatest } : p));
+            }
+          }
+          const tipoForTts = sugPromise
+            ? await Promise.race([
+              sugPromise.then((has) => (has ? tipoSugestao : undefined)),
+              new Promise<undefined>((resolve) => window.setTimeout(() => resolve(undefined), 900)),
+            ])
+            : undefined;
+          await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+          const audioEl = await speakPrice(speakProduto.preco, speakProduto.preco_lista, tipoForTts);
+          armReturnToIdle(audioEl, 8000);
         } else {
           armReturnToIdle(null, 8000);
         }
 
         if (corAutoEnabled && cachedMem.imagem_url_vtex) {
-          generateThemeFromImage(cachedMem.imagem_url_vtex).then(t => setTheme(t));
+          const imgForTheme = cachedMem.imagem_url_sem_fundo || cachedMem.imagem_url_vtex || cachedMem.link_imagem || "";
+          if (imgForTheme) generateThemeFromImage(imgForTheme).then(t => setTheme(t));
         }
 
-        setLoading(false);
         return;
       }
+
 
       const cachedStorage = await getCachedPrecoFromStorage(codigoEmpresa, numeroLoja, searchEan);
       if (cachedStorage) {
@@ -1908,6 +2404,23 @@ export default function TerminalPage() {
         processImageBackground(cachedStorage, codigoEmpresa, numeroLoja);
         void updateProductInBackground(searchEan, cachedStorage, codigoEmpresa, numeroLoja);
 
+        const sugPromise = (maxSugestoes ?? 0) > 0
+          ? fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=${maxSugestoes || 3}`, { headers: { ...SUPABASE_FUNCTION_HEADERS } })
+            .then(r => r.json())
+            .then((d: unknown) => {
+              const next = normalizeSugestoesPayload(d);
+              setSugestoes(next);
+              if (next) updateSugestoesPricesInBackground(next, codigoEmpresa, numeroLoja);
+              return !!next && (
+                (next.mesma_marca?.length || 0) +
+                (next.complementares?.length || 0) +
+                (next.perfil?.length || 0)
+              ) > 0;
+            })
+            .catch(() => false)
+          : null;
+        if (!sugPromise) setSugestoes(null);
+
         terminalEanChannelRef.current
           ?.send({
             type: "broadcast",
@@ -1916,18 +2429,41 @@ export default function TerminalPage() {
           })
           .catch(() => undefined);
 
+        setLoading(false);
+
         if (ttsEnabled && cachedStorage.preco) {
-          const audio = await speakPrice(cachedStorage.preco, cachedStorage.preco_lista, tipoSugestao);
+          let speakProduto: Produto = cachedStorage;
+          if (navigator.onLine) {
+            const maybeLatest = await Promise.race([
+              fetchPrecoFromApi(codigoEmpresa, numeroLoja, searchEan),
+              new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 900)),
+            ]);
+            if (maybeLatest && (maybeLatest.preco ?? null) !== (cachedStorage.preco ?? null)) {
+              speakProduto = maybeLatest;
+              produtosByEanRef.current[searchEan] = maybeLatest;
+              const ckey = cacheKeyForPreco(codigoEmpresa, numeroLoja, searchEan);
+              await cacheSetJson(ckey, { v: 1, codigo_empresa: codigoEmpresa, numero_loja: numeroLoja, ean: searchEan, updated_at: new Date().toISOString(), produto: maybeLatest });
+              setProduto((p) => (p && p.ean === searchEan ? { ...p, ...maybeLatest } : p));
+            }
+          }
+          const tipoForTts = sugPromise
+            ? await Promise.race([
+              sugPromise.then((has) => (has ? tipoSugestao : undefined)),
+              new Promise<undefined>((resolve) => window.setTimeout(() => resolve(undefined), 900)),
+            ])
+            : undefined;
+          await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+          const audio = await speakPrice(speakProduto.preco, speakProduto.preco_lista, tipoForTts);
           armReturnToIdle(audio, 8000);
         } else {
           armReturnToIdle(null, 8000);
         }
 
         if (corAutoEnabled && cachedStorage.imagem_url_vtex) {
-          generateThemeFromImage(cachedStorage.imagem_url_vtex).then(t => setTheme(t));
+          const imgForTheme = cachedStorage.imagem_url_sem_fundo || cachedStorage.imagem_url_vtex || cachedStorage.link_imagem || "";
+          if (imgForTheme) generateThemeFromImage(imgForTheme).then(t => setTheme(t));
         }
 
-        setLoading(false);
         return;
       }
 
@@ -1953,36 +2489,46 @@ export default function TerminalPage() {
         })
         .catch(() => undefined);
 
+      const sugPromise = (maxSugestoes ?? 0) > 0
+        ? fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=${maxSugestoes || 3}`, { headers: { ...SUPABASE_FUNCTION_HEADERS } })
+          .then(r => r.json())
+          .then((d: unknown) => {
+            const next = normalizeSugestoesPayload(d);
+            setSugestoes(next);
+            if (next) updateSugestoesPricesInBackground(next, codigoEmpresa, numeroLoja);
+            return !!next && (
+              (next.mesma_marca?.length || 0) +
+              (next.complementares?.length || 0) +
+              (next.perfil?.length || 0)
+            ) > 0;
+          })
+          .catch(() => false)
+        : null;
+      if (!sugPromise) setSugestoes(null);
+
+      setLoading(false);
+
       if (ttsEnabled && prod.preco) {
-        const audio = await speakPrice(prod.preco, prod.preco_lista, tipoSugestao);
+        const tipoForTts = sugPromise
+          ? await Promise.race([
+            sugPromise.then((has) => (has ? tipoSugestao : undefined)),
+            new Promise<undefined>((resolve) => window.setTimeout(() => resolve(undefined), 900)),
+          ])
+          : undefined;
+        const audio = await speakPrice(prod.preco, prod.preco_lista, tipoForTts);
         armReturnToIdle(audio, 8000);
       } else {
         armReturnToIdle(null, 8000);
       }
 
-      if (corAutoEnabled && prod.imagem_url_vtex) {
-        generateThemeFromImage(prod.imagem_url_vtex).then(t => setTheme(t));
+      if (corAutoEnabled) {
+        const imgForTheme = prod.imagem_url_sem_fundo || prod.imagem_url_vtex || prod.link_imagem || "";
+        if (imgForTheme) generateThemeFromImage(imgForTheme).then(t => setTheme(t));
       }
 
-      if ((maxSugestoes ?? 0) > 0) {
-        fetch(`${BASE_URL}/api-sugestoes?ean=${searchEan}&limit=${maxSugestoes || 3}`)
-          .then(r => r.json())
-          .then((d: unknown) => {
-            const shaped = d as { sugestoes?: Sugestoes } | Sugestoes;
-            const hasWrapper = (shaped as { sugestoes?: Sugestoes }).sugestoes !== undefined;
-            const next: Sugestoes = hasWrapper
-              ? (shaped as { sugestoes: Sugestoes }).sugestoes!
-              : (shaped as Sugestoes);
-            setSugestoes(next);
-          })
-          .catch(() => undefined);
-      } else {
-        setSugestoes(null);
-      }
-
-      setLoading(false);
-    } catch {
-      setError("Erro ao consultar produto");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(formatApiError(msg));
       terminalEanChannelRef.current
         ?.send({
           type: "broadcast",
@@ -2005,6 +2551,7 @@ export default function TerminalPage() {
     speakPrice,
     tipoSugestao,
     ttsEnabled,
+    updateSugestoesPricesInBackground,
     updateProductInBackground,
     resolveEmpresaContext,
   ]);
@@ -2181,7 +2728,11 @@ export default function TerminalPage() {
     const interval = window.setInterval(focus, 200);
     focus();
 
-    const onPointerDown = () => window.setTimeout(focus, 50);
+    const onPointerDown = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".mupa-virtual-keyboard")) return;
+      window.setTimeout(focus, 50);
+    };
     window.addEventListener("pointerdown", onPointerDown, true);
     window.addEventListener("touchstart", onPointerDown, true);
     const onVisibility = () => {
@@ -2428,8 +2979,20 @@ export default function TerminalPage() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "dispositivos", filter: `id=eq.${id}` },
         (payload) => {
-          const n = payload.new as { input_remoto_ativo?: boolean; config_override?: unknown };
+          const n = payload.new as { input_remoto_ativo?: boolean; config_override?: unknown; loja_numero?: string | null };
           if (typeof n.input_remoto_ativo === "boolean") inputRemotoRef.current = n.input_remoto_ativo;
+          if (typeof n.loja_numero === "string") {
+            const next = normalizeLojaNumero(n.loja_numero);
+            if (next) {
+              try {
+                localStorage.setItem("mupa_loja_numero", next);
+              } catch {
+                return;
+              }
+              setLojaNumeroAtivo(next);
+              setWizardLojaNumero(next);
+            }
+          }
           const overrides = n.config_override;
           if (overrides && typeof overrides === "object") {
             for (const [k, v] of Object.entries(overrides as Record<string, unknown>)) {
@@ -2582,15 +3145,17 @@ export default function TerminalPage() {
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         <button
                           type="button"
+                          disabled={activatingDevice}
                           onClick={() => void activateDeviceDirect({
                             codigoEmpresa: detectedDevice.empresa_code,
                             deviceName: detectedDevice.device_name,
                             grupoId: detectedDevice.grupo_id,
                             lojaNumero: detectedDevice.loja_numero,
+                            deviceId: detectedDevice.id,
                           })}
-                          className="w-full py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all"
+                          className="w-full py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all"
                         >
-                          Confirmar
+                          {activatingDevice ? "Aguarde..." : "Confirmar"}
                         </button>
                         <button
                           type="button"
@@ -2616,10 +3181,11 @@ export default function TerminalPage() {
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         <button
                           type="button"
+                          disabled={activatingDevice}
                           onClick={restoreLastKnownDevice}
-                          className="w-full py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all"
+                          className="w-full py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all"
                         >
-                          Confirmar
+                          {activatingDevice ? "Aguarde..." : "Confirmar"}
                         </button>
                         <button
                           type="button"
@@ -2802,7 +3368,7 @@ export default function TerminalPage() {
                   onBackspace={backspaceWizard}
                   onEnter={wizardNext}
                   dark
-                  className="w-full h-full border-t-0 border-l p-2 shadow-none"
+                  className="mupa-virtual-keyboard w-full h-full border-t-0 border-l p-2 shadow-none"
                 />
               </div>
             )}
@@ -2992,6 +3558,7 @@ export default function TerminalPage() {
                 onBackspace={backspaceWizard}
                 onEnter={wizardNext}
                 dark
+                className="mupa-virtual-keyboard"
               />
             )}
           </>
@@ -3044,17 +3611,58 @@ export default function TerminalPage() {
     );
   }
 
+  // Exibir banner de manutenção apenas se status manual indicar
+  if (isUnderMaintenance) {
+    return (
+      <MaintenanceBanner
+        message={maintenanceMessage || "Sistema em manutenção programada. Retornamos em breve."}
+        onRetry={forceMaintenanceCheck}
+        showRetry={true}
+      />
+    );
+  }
+
   return (
-    <div
-      ref={containerRef}
-      className="terminal-page"
-      style={{ background: bgGradient, cursor: "none", transition: transitionStyle }}
+    <ErrorBoundary
+      fallback={
+        <MaintenanceBanner
+          message="Ocorreu um erro inesperado no sistema."
+          onRetry={() => window.location.reload()}
+        />
+      }
     >
+      <div
+        ref={containerRef}
+        className="terminal-page"
+        style={{ background: bgGradient, cursor: "none", transition: transitionStyle }}
+      >
+      <div
+        ref={scanTrapRef}
+        tabIndex={0}
+        aria-hidden="true"
+        onFocus={() => {
+          if (!scanFocusedRef.current) {
+            scanFocusedRef.current = true;
+            setScanFocused(true);
+          }
+        }}
+        onBlur={() => {
+          if (scanFocusedRef.current) {
+            scanFocusedRef.current = false;
+            setScanFocused(false);
+          }
+          window.setTimeout(() => {
+            if (document.visibilityState !== "visible") return;
+            focusScanInput();
+          }, 120);
+        }}
+        style={{ position: "absolute", opacity: 0, width: 1, height: 1, left: 4, top: 4 }}
+      />
       <input
         ref={scanInputRef}
         type="text"
         inputMode="none"
-        autoFocus
+        autoFocus={!isAndroidWebView}
         value={ean}
         onKeyDown={onScanKeyDown}
         onChange={onScanChange}
@@ -3077,7 +3685,7 @@ export default function TerminalPage() {
           }, 120);
         }}
         aria-hidden="true"
-        style={{ position: "absolute", opacity: 0, width: 1, height: 1, left: -10, top: -10 }}
+        style={{ position: "absolute", opacity: 0, width: 1, height: 1, left: 4, top: 4 }}
         {...suppressNativeKeyboardProps}
       />
       {!scanFocused && (
@@ -3188,24 +3796,31 @@ export default function TerminalPage() {
 
       <AnimatePresence>
         {loading && (
-          <motion.div className="terminal-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <div className="terminal-spinner" />
-            <p className="mt-6 text-center text-xl font-semibold" style={{ color: t.textColor, opacity: 0.85 }}>
-              {loadingText}
-            </p>
+          <motion.div className="terminal-loading-screen" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <div className="terminal-loading-screen-content">
+              <div className="terminal-loading-screen-badge">
+                <Search className="terminal-loading-screen-icon" />
+              </div>
+              <div className="terminal-loading-screen-title">Consultando preço</div>
+              <div className="terminal-loading-screen-text">{loadingText}</div>
+              <div className="terminal-loading-screen-dots" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
       <AnimatePresence>
         {error && (
-          <motion.div className="terminal-error" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}>
-            <p className="text-2xl font-bold" style={{ color: t.textColor }}>{error}</p>
-            <p className="mt-2" style={{ color: t.textMuted }}>Verifique o código e tente novamente</p>
-            <motion.div className="mt-4 h-1 rounded-full overflow-hidden w-48 mx-auto" style={{ background: "rgba(0,0,0,0.08)" }}>
-              <motion.div className="h-full rounded-full" style={{ background: "rgba(0,0,0,0.25)" }}
-                initial={{ width: "100%" }} animate={{ width: "0%" }} transition={{ duration: 3, ease: "linear" }} />
-            </motion.div>
+          <motion.div className="terminal-error-screen" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <div className="terminal-error-screen-content">
+              <AlertTriangle className="terminal-error-screen-icon" />
+              <div className="terminal-error-screen-text">{error}</div>
+              <div className="terminal-error-screen-sub">Tente novamente. Se persistir, verifique a internet e a disponibilidade das APIs.</div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -3318,7 +3933,7 @@ export default function TerminalPage() {
                           <p className="terminal-suggestion-name" style={{ color: t.containerTextColor }}>
                             {normalizeProductName(s.nome)}
                           </p>
-                          {s.preco && (
+                          {typeof s.preco === "number" && (
                             <p className="terminal-suggestion-price" style={{ color: t.priceTextColor, background: t.priceContainerGradient }}>
                               R$ {s.preco.toFixed(2)}
                             </p>
@@ -3416,7 +4031,7 @@ export default function TerminalPage() {
                             <p className="terminal-suggestion-name" style={{ color: "#111" }}>
                               {normalizeProductName(s.nome)}
                             </p>
-                            {s.preco && (
+                            {typeof s.preco === "number" && (
                               <p className="terminal-suggestion-price" style={{ color: t.priceTextColor, background: t.priceContainerGradient }}>
                                 R$ {s.preco.toFixed(2)}
                               </p>
@@ -3515,7 +4130,7 @@ export default function TerminalPage() {
                         </p>
                       )}
                       <div className="terminal-container-price" style={{ color: t.priceTextColor }}>
-                        <span className="terminal-container-price-symbol" style={{ fontSize: Math.round(priceReaisSize * 0.26), marginTop: Math.round(priceReaisSize * 0.12) }}>
+                        <span className="terminal-container-price-symbol" style={{ fontSize: Math.round(priceReaisSize * 0.26) }}>
                           R$
                         </span>
                         <motion.span
@@ -3693,5 +4308,6 @@ export default function TerminalPage() {
         </div>
       )}
     </div>
+    </ErrorBoundary>
   );
 }
