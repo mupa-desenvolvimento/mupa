@@ -5,7 +5,6 @@ import { Barcode, AlertTriangle, Search } from "lucide-react";
 import { suppressNativeKeyboardProps } from "@/components/virtual-keyboard/suppressNativeKeyboard";
 import { VirtualKeyboard } from "@/components/virtual-keyboard/VirtualKeyboard";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import { useFullscreen } from "@/hooks/useFullscreen";
 import MaintenanceBanner from "@/components/MaintenanceBanner";
 import { useMaintenanceStatus } from "@/hooks/useMaintenanceStatus";
 import { useInfinitePolling } from "@/hooks/useInfinitePolling";
@@ -762,8 +761,6 @@ const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 const SUPABASE_FUNCTION_HEADERS = getSupabaseFunctionHeaders();
 
 export default function TerminalPage() {
-  // ---- Fullscreen + Wake Lock ----
-  useFullscreen(true);
   // ---- Sistema de Manutenção Manual ----
   const { 
     isUnderMaintenance, 
@@ -856,18 +853,7 @@ export default function TerminalPage() {
     const device_name = sanitizeTerminalDeviceName(lastKnownDevice.device_name || "") || "Terminal";
     const loja_numero = normalizeLojaNumero(lastKnownDevice.loja_numero || "");
     const device_key = String(lastKnownDevice.device_key || "").trim();
-    if (!id || !empresa_code) {
-      setWizardError("Dados do dispositivo incompletos. Faça um novo cadastro.");
-      return;
-    }
-    if (!loja_numero) {
-      // Pre-fill wizard with known data and let user complete missing loja_numero
-      setWizardEmpresaCode(empresa_code);
-      setWizardDeviceName(device_name);
-      setWizardLojaNumero("");
-      setWizardError("Número da loja não cadastrado. Complete o cadastro.");
-      return;
-    }
+    if (!id || !empresa_code || !loja_numero) return;
 
     localStorage.setItem("mupa_device_id", id);
     localStorage.setItem("mupa_empresa_id", empresa_id);
@@ -1146,7 +1132,6 @@ export default function TerminalPage() {
     deviceName: string;
     grupoId: string | null;
     lojaNumero: string;
-    deviceId?: string;
   }) => {
     const codigoEmpresa = normalizeEmpresaCode(args.codigoEmpresa);
     const deviceName = sanitizeTerminalDeviceName(args.deviceName) || "Terminal";
@@ -1156,7 +1141,7 @@ export default function TerminalPage() {
     setActivatingDevice(true);
     setWizardError(null);
     try {
-      const deviceId = args.deviceId || localStorage.getItem("mupa_device_id");
+      const deviceId = localStorage.getItem("mupa_device_id");
       const deviceKey = localStorage.getItem("mupa_device_key");
       const { res, json } = await fetchJsonWithTimeout(`${BASE_URL}/api-ativar-dispositivo`, {
         method: "POST",
@@ -1164,7 +1149,6 @@ export default function TerminalPage() {
         body: JSON.stringify({
           codigo_empresa: codigoEmpresa,
           device_id: deviceId || deviceKey || null,
-          device_key: deviceKey || null,
           device_name: deviceName,
           grupo_id: grupoId,
           loja_numero: lojaNumero || null,
@@ -2728,11 +2712,7 @@ export default function TerminalPage() {
     const interval = window.setInterval(focus, 200);
     focus();
 
-    const onPointerDown = (event: Event) => {
-      const target = event.target;
-      if (target instanceof Element && target.closest(".mupa-virtual-keyboard")) return;
-      window.setTimeout(focus, 50);
-    };
+    const onPointerDown = () => window.setTimeout(focus, 50);
     window.addEventListener("pointerdown", onPointerDown, true);
     window.addEventListener("touchstart", onPointerDown, true);
     const onVisibility = () => {
@@ -3145,17 +3125,15 @@ export default function TerminalPage() {
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         <button
                           type="button"
-                          disabled={activatingDevice}
                           onClick={() => void activateDeviceDirect({
                             codigoEmpresa: detectedDevice.empresa_code,
                             deviceName: detectedDevice.device_name,
                             grupoId: detectedDevice.grupo_id,
                             lojaNumero: detectedDevice.loja_numero,
-                            deviceId: detectedDevice.id,
                           })}
-                          className="w-full py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all"
+                          className="w-full py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all"
                         >
-                          {activatingDevice ? "Aguarde..." : "Confirmar"}
+                          Confirmar
                         </button>
                         <button
                           type="button"
@@ -3181,11 +3159,10 @@ export default function TerminalPage() {
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         <button
                           type="button"
-                          disabled={activatingDevice}
                           onClick={restoreLastKnownDevice}
-                          className="w-full py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all"
+                          className="w-full py-2 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all"
                         >
-                          {activatingDevice ? "Aguarde..." : "Confirmar"}
+                          Confirmar
                         </button>
                         <button
                           type="button"
@@ -3368,7 +3345,7 @@ export default function TerminalPage() {
                   onBackspace={backspaceWizard}
                   onEnter={wizardNext}
                   dark
-                  className="mupa-virtual-keyboard w-full h-full border-t-0 border-l p-2 shadow-none"
+                  className="w-full h-full border-t-0 border-l p-2 shadow-none"
                 />
               </div>
             )}
@@ -3558,7 +3535,6 @@ export default function TerminalPage() {
                 onBackspace={backspaceWizard}
                 onEnter={wizardNext}
                 dark
-                className="mupa-virtual-keyboard"
               />
             )}
           </>
