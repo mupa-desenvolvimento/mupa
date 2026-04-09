@@ -27,11 +27,6 @@ function normalizeShortText(input: string, maxLen: number) {
 const EMPRESA_CODE_RE = /^[A-Z]{3}[0-9]{3}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object") return null;
-  return value as Record<string, unknown>;
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -73,19 +68,16 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (empresaError) throw empresaError;
-    const empresaRec = asRecord(empresa);
-    const empresaId = typeof empresaRec?.id === "string" ? empresaRec.id : null;
-    const empresaAtivo = typeof empresaRec?.ativo === "boolean" ? empresaRec.ativo : null;
-    if (!empresaId) {
+    if (!empresa) {
       return new Response(JSON.stringify({ error: "Código inválido" }), { status: 404, headers: jsonHeaders });
     }
-    if (empresaAtivo === false) {
+    if (empresa.ativo === false) {
       return new Response(JSON.stringify({ error: "Empresa inativa" }), { status: 403, headers: jsonHeaders });
     }
 
     if (action === "validate_empresa") {
       return new Response(
-        JSON.stringify({ empresa: { id: empresaId, codigo_vinculo: codigoEmpresa } }),
+        JSON.stringify({ empresa: { id: empresa.id, codigo_vinculo: codigoEmpresa } }),
         { headers: jsonHeaders },
       );
     }
@@ -118,13 +110,9 @@ Deno.serve(async (req) => {
 
       if (existingError) throw existingError;
 
-      const existingRec = asRecord(existing);
-      const existingId = typeof existingRec?.id === "string" ? existingRec.id : null;
-      const existingCodigoAtivacao =
-        typeof existingRec?.codigo_ativacao === "string" ? existingRec.codigo_ativacao : null;
-      if (existingId) {
+      if (existing) {
         const baseUpdate = {
-          empresa_id: empresaId,
+          empresa_id: empresa.id,
           ativo: true,
           ativado_em: now,
           ultimo_acesso: now,
@@ -139,7 +127,7 @@ Deno.serve(async (req) => {
           const { error } = await supabase
             .from("dispositivos")
             .update(baseUpdate)
-            .eq("id", existingId);
+            .eq("id", existing.id);
           updateError = error;
         }
 
@@ -153,14 +141,14 @@ Deno.serve(async (req) => {
             const { error } = await supabase
               .from("dispositivos")
               .update(baseUpdate)
-              .eq("id", existingId);
+              .eq("id", existing.id);
             if (error) throw error;
             const warnings: string[] = [];
             if (missingLoja) warnings.push("Coluna dispositivos.loja_numero não existe. Aplique a migration sugerida para salvar o número da loja.");
             if (missingKey) warnings.push("Coluna dispositivos.device_key não existe. Aplique a migration sugerida para vincular ID externo.");
             return new Response(
               JSON.stringify({
-                dispositivo: { id: existingId, empresa_id: empresaId, codigo_ativacao: existingCodigoAtivacao },
+                dispositivo: { id: existing.id, empresa_id: empresa.id, codigo_ativacao: existing.codigo_ativacao },
                 warnings,
               }),
               { headers: jsonHeaders },
@@ -171,7 +159,7 @@ Deno.serve(async (req) => {
 
         return new Response(
           JSON.stringify({
-            dispositivo: { id: existingId, empresa_id: empresaId, codigo_ativacao: existingCodigoAtivacao },
+            dispositivo: { id: existing.id, empresa_id: empresa.id, codigo_ativacao: existing.codigo_ativacao },
           }),
           { headers: jsonHeaders },
         );
@@ -179,7 +167,7 @@ Deno.serve(async (req) => {
     }
 
     const baseInsert = {
-      empresa_id: empresaId,
+      empresa_id: empresa.id,
       nome: deviceName,
       ativo: true,
       ativado_em: now,
@@ -214,20 +202,12 @@ Deno.serve(async (req) => {
           .select("id, empresa_id, codigo_ativacao")
           .single();
         if (error) throw error;
-        const insertedRec = asRecord(data);
-        const inserted = insertedRec
-          ? {
-              id: typeof insertedRec.id === "string" ? insertedRec.id : "",
-              empresa_id: typeof insertedRec.empresa_id === "string" ? insertedRec.empresa_id : null,
-              codigo_ativacao: typeof insertedRec.codigo_ativacao === "string" ? insertedRec.codigo_ativacao : "",
-            }
-          : null;
         const warnings: string[] = [];
         if (missingLoja) warnings.push("Coluna dispositivos.loja_numero não existe. Aplique a migration sugerida para salvar o número da loja.");
         if (missingKey) warnings.push("Coluna dispositivos.device_key não existe. Aplique a migration sugerida para vincular ID externo.");
         return new Response(
           JSON.stringify({
-            dispositivo: inserted,
+            dispositivo: data,
             warnings,
           }),
           { headers: jsonHeaders },

@@ -64,7 +64,7 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: "Imagem muito grande" }), { status: 413, headers: jsonHeaders });
     }
 
-    const path = `nobg-v2/${codigoEmpresa}/${numeroLoja}/${ean}.png`;
+    const path = `nobg/${codigoEmpresa}/${numeroLoja}/${ean}.png`;
     const { error: upErr } = await supabase.storage
       .from("produto-nobg")
       .upload(path, bytes, { upsert: true, contentType: "image/png", cacheControl: "3600" });

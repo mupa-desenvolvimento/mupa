@@ -17,19 +17,17 @@ export default defineConfig(({ mode }) => ({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["pwa-192.png", "pwa-512.png", "favicon.ico"],
-      strategies: "generateSW",
+      includeAssets: ["pwa-192.png", "pwa-512.png"],
       manifest: {
         name: "Mupa Terminal",
         short_name: "Mupa",
-        description: "Terminal de consulta e catálogo de preços",
+        description: "Terminal de consulta e catálogo Mupa",
         theme_color: "#0f172a",
         background_color: "#0f172a",
         display: "standalone",
-        orientation: "portrait",
-        start_url: "/",
+        orientation: "any",
+        start_url: "/terminal",
         scope: "/",
-        prefer_related_applications: false,
         icons: [
           {
             src: "pwa-192.png",
@@ -44,36 +42,10 @@ export default defineConfig(({ mode }) => ({
             purpose: "any maskable",
           },
         ],
-        shortcuts: [
-          {
-            name: "Abrir Terminal",
-            short_name: "Terminal",
-            description: "Acessar terminal de consulta",
-            url: "/terminal",
-            icons: [{ src: "pwa-192.png", sizes: "192x192" }]
-          }
-        ]
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2,jpg,jpeg}"],
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         navigateFallback: "/index.html",
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/.*\.(png|jpg|jpeg|svg|gif)$/,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'images-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
-              },
-            },
-          },
-        ],
-      },
-      devOptions: {
-        enabled: true,
-        type: 'module',
       },
     }),
     mode === "development" && componentTagger(),

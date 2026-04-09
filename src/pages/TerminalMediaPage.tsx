@@ -13,9 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { GroupTreeView } from "@/components/terminal/GroupTreeView";
 import { toast } from "sonner";
-import { Upload, Trash2, GripVertical, Image, Video, ExternalLink, Settings, Volume2, Bell, Paintbrush, LayoutGrid, RotateCcw, RefreshCw, Palette, Waves, ListMusic, FolderTree, Play, Pause, Plus, X, Clock, Maximize2, Search, ArrowUpDown, SkipBack, SkipForward, ZoomIn, ZoomOut, Monitor } from "lucide-react";
+import { Upload, Trash2, GripVertical, Image, Video, ExternalLink, Settings, Volume2, Bell, Paintbrush, LayoutGrid, RotateCcw, RefreshCw, Palette, Waves, ListMusic, FolderTree, Play, Pause, Plus, X, Clock, Maximize2, Search, ArrowUpDown, SkipBack, SkipForward, ZoomIn, ZoomOut } from "lucide-react";
 import {
   DndContext, closestCenter, DragOverlay, KeyboardSensor, PointerSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, type DragMoveEvent, type DragStartEvent, type Modifier,
 } from "@dnd-kit/core";
@@ -41,9 +40,6 @@ interface DispositivoLite {
   id: string;
   nome: string;
   grupo_id: string | null;
-  config_override?: unknown;
-  ativo?: boolean;
-  ultimo_acesso?: string | null;
 }
 
 type PlaylistItemRow = {
@@ -61,11 +57,6 @@ function formatDuration(seconds: number) {
   const m = Math.floor(s / 60);
   const ss = String(s % 60).padStart(2, "0");
   return `${m}:${ss}`;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object") return null;
-  return value as Record<string, unknown>;
 }
 
 function clamp(min: number, value: number, max: number) {
@@ -382,6 +373,10 @@ export default function TerminalMediaPage() {
   const [zoomPct, setZoomPct] = useState(100);
   const [playing, setPlaying] = useState(false);
   const [playheadSec, setPlayheadSec] = useState(0);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupParentId, setNewGroupParentId] = useState<string | null>(null);
+  const [newGroupPlaylistId, setNewGroupPlaylistId] = useState<string | null>(null);
+  const [addDeviceToGroup, setAddDeviceToGroup] = useState<Record<string, string | undefined>>({});
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -498,10 +493,7 @@ export default function TerminalMediaPage() {
   const { data: dispositivos = [] } = useQuery({
     queryKey: ["dispositivos-lite"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("dispositivos")
-        .select("id, nome, grupo_id, config_override, ativo, ultimo_acesso")
-        .order("nome", { ascending: true });
+      const { data, error } = await supabase.from("dispositivos").select("id, nome, grupo_id").order("nome", { ascending: true });
       if (error) throw error;
       return data as DispositivoLite[];
     },
@@ -933,6 +925,43 @@ export default function TerminalMediaPage() {
     setTimelineInsert(null);
   }, [addPlaylistItemAt, playlistItems, queryClient, savePlaylistOrder, selectedPlaylistId, timelineInsert?.index]);
 
+  const createGrupo = useMutation({
+    mutationFn: async ({ nome, parent_id, playlist_id }: { nome: string; parent_id: string | null; playlist_id: string | null }) => {
+      const { error } = await supabase.from("dispositivo_grupos").insert({ nome, parent_id, playlist_id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dispositivo-grupos"] });
+      setNewGroupName("");
+      setNewGroupParentId(null);
+      setNewGroupPlaylistId(null);
+      toast.success("Grupo criado");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateGrupo = useMutation({
+    mutationFn: async ({ id, playlist_id, parent_id, nome }: { id: string; playlist_id: string | null; parent_id: string | null; nome: string }) => {
+      const { error } = await supabase.from("dispositivo_grupos").update({ playlist_id, parent_id, nome }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["dispositivo-grupos"] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateDispositivoGrupo = useMutation({
+    mutationFn: async ({ id, grupo_id }: { id: string; grupo_id: string | null }) => {
+      const { error } = await supabase.from("dispositivos").update({ grupo_id }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dispositivos-lite"] });
+      queryClient.invalidateQueries({ queryKey: ["dispositivos"] });
+      toast.success("Dispositivo atualizado");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -1009,34 +1038,6 @@ export default function TerminalMediaPage() {
     if (!pid) return "Mídia padrão";
     return playlistsById.get(pid)?.nome ?? "Playlist";
   };
-
-  const resolveDevicePlaylist = useCallback((d: DispositivoLite): { playlistId: string | null; source: "override" | "grupo" | "padrao" } => {
-    const override = asRecord(d.config_override);
-    const overrideId = typeof override?.playlist_id === "string" && override.playlist_id ? override.playlist_id : null;
-    if (overrideId) return { playlistId: overrideId, source: "override" };
-    if (d.grupo_id) return { playlistId: resolveGroupPlaylistId(d.grupo_id), source: "grupo" };
-    return { playlistId: null, source: "padrao" };
-  }, [resolveGroupPlaylistId]);
-
-  const devicesUsingSelectedPlaylist = useMemo(() => {
-    if (!selectedPlaylistId) return [];
-    const list = dispositivos
-      .map((d) => ({ d, eff: resolveDevicePlaylist(d) }))
-      .filter((x) => x.eff.playlistId === selectedPlaylistId)
-      .map((x) => x);
-    return list;
-  }, [dispositivos, resolveDevicePlaylist, selectedPlaylistId]);
-
-  const onlineDeviceIds = useMemo(() => {
-    const now = Date.now();
-    const windowMs = 5 * 60 * 1000;
-    const ids = new Set<string>();
-    for (const d of dispositivos) {
-      const ts = d.ultimo_acesso ? Date.parse(d.ultimo_acesso) : NaN;
-      if (Number.isFinite(ts) && now - ts <= windowMs) ids.add(d.id);
-    }
-    return ids;
-  }, [dispositivos]);
 
   const saveAppearanceValue = async (chave: string, valor: number, setter: (v: number) => void) => {
     setter(valor);
@@ -1217,46 +1218,6 @@ export default function TerminalMediaPage() {
               </div>
             </div>
           </div>
-
-          {selectedPlaylistId ? (
-            <div className="stat-card !p-4 shrink-0">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-medium flex items-center gap-2">
-                  <Monitor className="w-4 h-4" />
-                  Dispositivos rodando esta playlist
-                </h3>
-                <div className="text-xs text-muted-foreground">
-                  {devicesUsingSelectedPlaylist.length} dispositivo(s)
-                </div>
-              </div>
-              {devicesUsingSelectedPlaylist.length === 0 ? (
-                <div className="text-sm text-muted-foreground mt-2">
-                  Nenhum dispositivo está configurado para usar esta playlist (via grupo ou override).
-                </div>
-              ) : (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {devicesUsingSelectedPlaylist.map(({ d, eff }) => {
-                    const online = onlineDeviceIds.has(d.id);
-                    const groupLabel = d.grupo_id ? resolveGroupPlaylistLabel(d.grupo_id) : "Mídia padrão";
-                    const sourceLabel = eff.source === "override" ? "override" : eff.source === "grupo" ? "grupo" : "padrão";
-                    return (
-                      <div key={d.id} className="flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5">
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold truncate max-w-[220px]">{d.nome}</div>
-                          <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">
-                            {groupLabel} • {sourceLabel}
-                          </div>
-                        </div>
-                        <Badge variant={online ? "default" : "secondary"} className={online ? "bg-green-600 hover:bg-green-600" : ""}>
-                          {online ? "Online" : "Offline"}
-                        </Badge>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          ) : null}
 
           {!selectedPlaylistId ? (
             <div className="stat-card !p-10 text-center flex-1 min-h-0 flex flex-col items-center justify-center">
@@ -1644,8 +1605,147 @@ export default function TerminalMediaPage() {
           </Dialog>
         </TabsContent>
 
-        <TabsContent value="grupos" className="flex-1 min-h-0 overflow-auto">
-          <GroupTreeView grupos={grupos} playlists={playlists} dispositivos={dispositivos} />
+        <TabsContent value="grupos" className="flex-1 min-h-0 overflow-auto space-y-4">
+          <div className="stat-card !p-5 space-y-3">
+            <h3 className="text-sm font-medium flex items-center gap-2"><FolderTree className="w-4 h-4" />Grupos de Dispositivos</h3>
+            <div className="grid gap-2 md:grid-cols-3">
+              <Input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="Nome do grupo" />
+              <Select value={newGroupParentId ?? "none"} onValueChange={(v) => setNewGroupParentId(v === "none" ? null : v)}>
+                <SelectTrigger><SelectValue placeholder="Pai (opcional)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem pai</SelectItem>
+                  {grupos.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={newGroupPlaylistId ?? "none"} onValueChange={(v) => setNewGroupPlaylistId(v === "none" ? null : v)}>
+                <SelectTrigger><SelectValue placeholder="Playlist (opcional)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{newGroupParentId ? "Herdar do pai" : "Sem playlist"}</SelectItem>
+                  {playlists.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end">
+              <Button
+                onClick={() => {
+                  const nome = newGroupName.trim();
+                  if (!nome) return;
+                  createGrupo.mutate({ nome, parent_id: newGroupParentId, playlist_id: newGroupPlaylistId });
+                }}
+                disabled={createGrupo.isPending}
+              >
+                Criar Grupo
+              </Button>
+            </div>
+          </div>
+
+          <div className="stat-card !p-4 space-y-2">
+            {grupos.length === 0 ? (
+              <div className="text-sm text-muted-foreground py-8 text-center">Nenhum grupo criado</div>
+            ) : (
+              grupos.map((g) => (
+                <div key={g.id} className="rounded-lg border p-4 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <Input
+                      defaultValue={g.nome}
+                      onBlur={(e) => {
+                        const nome = e.target.value.trim();
+                        if (!nome || nome === g.nome) return;
+                        updateGrupo.mutate({ id: g.id, nome, parent_id: g.parent_id, playlist_id: g.playlist_id });
+                      }}
+                    />
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Playlist efetiva: {resolveGroupPlaylistLabel(g.id)}
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Select
+                      value={g.parent_id ?? "none"}
+                      onValueChange={(v) => updateGrupo.mutate({ id: g.id, nome: g.nome, parent_id: v === "none" ? null : v, playlist_id: g.playlist_id })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Pai" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sem pai</SelectItem>
+                        {grupos.filter((x) => x.id !== g.id).map((x) => (
+                          <SelectItem key={x.id} value={x.id}>
+                            {x.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={g.playlist_id ?? "none"}
+                      onValueChange={(v) => updateGrupo.mutate({ id: g.id, nome: g.nome, parent_id: g.parent_id, playlist_id: v === "none" ? null : v })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Playlist" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">{g.parent_id ? "Herdar do pai" : "Sem playlist"}</SelectItem>
+                        {playlists.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                    <div className="text-xs font-medium">Dispositivos</div>
+                    <div className="space-y-2">
+                      {dispositivos.filter((d) => d.grupo_id === g.id).length === 0 ? (
+                        <div className="text-xs text-muted-foreground">Nenhum dispositivo vinculado</div>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {dispositivos.filter((d) => d.grupo_id === g.id).map((d) => (
+                            <div key={d.id} className="flex items-center gap-2 rounded-full border bg-background px-3 py-1">
+                              <div className="text-xs">{d.nome}</div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5"
+                                onClick={() => updateDispositivoGrupo.mutate({ id: d.id, grupo_id: null })}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <Select
+                      value={addDeviceToGroup[g.id]}
+                      onValueChange={(deviceId) => {
+                        setAddDeviceToGroup((prev) => ({ ...prev, [g.id]: deviceId }));
+                        updateDispositivoGrupo.mutate(
+                          { id: deviceId, grupo_id: g.id },
+                          { onSuccess: () => setAddDeviceToGroup((prev) => ({ ...prev, [g.id]: undefined })) }
+                        );
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Vincular dispositivo…" /></SelectTrigger>
+                      <SelectContent>
+                        {dispositivos.filter((d) => d.grupo_id !== g.id).map((d) => (
+                          <SelectItem key={d.id} value={d.id}>
+                            {d.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </TabsContent>
 
         {/* ═══ TAB: Aparência ═══ */}
