@@ -35,6 +35,15 @@ const keyBtn = (dark: boolean) =>
       : "border-border/80 bg-background",
   );
 
+/**
+ * Prevent focus from leaving the hidden input.
+ * We only call preventDefault — we do NOT stopPropagation so that
+ * the click event still fires normally.
+ */
+const preventFocusLoss = (e: React.MouseEvent | React.PointerEvent | React.TouchEvent) => {
+  e.preventDefault();
+};
+
 export function VirtualKeyboard({
   mode,
   onKey,
@@ -46,16 +55,6 @@ export function VirtualKeyboard({
   const rows = mode === "activation" ? ACTIVATION_ROWS : FULL_ROWS;
   const kb = keyBtn(dark);
 
-  /** Fires the callback on pointerUp so it works even when the
-   *  container uses preventDefault on pointerDown (to keep focus
-   *  on the hidden input). */
-  const tap = (fn: () => void) => ({
-    onPointerUp: (e: React.PointerEvent) => {
-      e.stopPropagation();
-      fn();
-    },
-  });
-
   return (
     <div
       role="group"
@@ -65,7 +64,8 @@ export function VirtualKeyboard({
         dark ? "border-white/10 bg-slate-950/95" : "border-border bg-muted/95",
         className,
       )}
-      onPointerDown={(e) => e.preventDefault()}
+      onMouseDown={preventFocusLoss}
+      onPointerDown={preventFocusLoss}
     >
       <div className="mx-auto flex max-w-3xl flex-col gap-1.5">
         {rows.map((row, ri) => (
@@ -75,7 +75,7 @@ export function VirtualKeyboard({
                 key={k + ri}
                 type="button"
                 className={cn(kb, "min-w-[2.25rem] flex-1 max-w-[3rem] sm:min-w-10")}
-                {...tap(() => onKey(k))}
+                onClick={() => onKey(k)}
               >
                 {k}
               </button>
@@ -90,7 +90,7 @@ export function VirtualKeyboard({
                 key={k}
                 type="button"
                 className={cn(kb, "min-w-10 px-2")}
-                {...tap(() => onKey(k))}
+                onClick={() => onKey(k)}
               >
                 {k}
               </button>
@@ -98,7 +98,7 @@ export function VirtualKeyboard({
             <button
               type="button"
               className={cn(kb, "min-w-0 flex-[2] max-w-[12rem] px-2")}
-              {...tap(() => onKey(" "))}
+              onClick={() => onKey(" ")}
             >
               espaço
             </button>
@@ -112,7 +112,7 @@ export function VirtualKeyboard({
               kb,
               "flex min-w-24 items-center justify-center gap-2 px-4 sm:min-w-28",
             )}
-            {...tap(onBackspace)}
+            onClick={onBackspace}
           >
             <Delete className="h-4 w-4" />
             apagar
@@ -126,7 +126,7 @@ export function VirtualKeyboard({
                   ? "border-blue-500 bg-blue-600 text-white"
                   : "border-primary bg-primary text-primary-foreground",
               )}
-              {...tap(onEnter)}
+              onClick={onEnter}
             >
               <CornerDownLeft className="h-4 w-4" />
               entrar
