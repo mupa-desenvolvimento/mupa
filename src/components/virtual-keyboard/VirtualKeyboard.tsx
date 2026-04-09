@@ -46,6 +46,16 @@ export function VirtualKeyboard({
   const rows = mode === "activation" ? ACTIVATION_ROWS : FULL_ROWS;
   const kb = keyBtn(dark);
 
+  /** Fires the callback on pointerUp so it works even when the
+   *  container uses preventDefault on pointerDown (to keep focus
+   *  on the hidden input). */
+  const tap = (fn: () => void) => ({
+    onPointerUp: (e: React.PointerEvent) => {
+      e.stopPropagation();
+      fn();
+    },
+  });
+
   return (
     <div
       role="group"
@@ -65,7 +75,7 @@ export function VirtualKeyboard({
                 key={k + ri}
                 type="button"
                 className={cn(kb, "min-w-[2.25rem] flex-1 max-w-[3rem] sm:min-w-10")}
-                onClick={() => onKey(k)}
+                {...tap(() => onKey(k))}
               >
                 {k}
               </button>
@@ -80,7 +90,7 @@ export function VirtualKeyboard({
                 key={k}
                 type="button"
                 className={cn(kb, "min-w-10 px-2")}
-                onClick={() => onKey(k)}
+                {...tap(() => onKey(k))}
               >
                 {k}
               </button>
@@ -88,7 +98,7 @@ export function VirtualKeyboard({
             <button
               type="button"
               className={cn(kb, "min-w-0 flex-[2] max-w-[12rem] px-2")}
-              onClick={() => onKey(" ")}
+              {...tap(() => onKey(" "))}
             >
               espaço
             </button>
@@ -102,7 +112,7 @@ export function VirtualKeyboard({
               kb,
               "flex min-w-24 items-center justify-center gap-2 px-4 sm:min-w-28",
             )}
-            onClick={onBackspace}
+            {...tap(onBackspace)}
           >
             <Delete className="h-4 w-4" />
             apagar
@@ -116,7 +126,7 @@ export function VirtualKeyboard({
                   ? "border-blue-500 bg-blue-600 text-white"
                   : "border-primary bg-primary text-primary-foreground",
               )}
-              onClick={onEnter}
+              {...tap(onEnter)}
             >
               <CornerDownLeft className="h-4 w-4" />
               entrar
