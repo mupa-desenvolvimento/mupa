@@ -31,19 +31,15 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <Routes>
-            {/* Rota pública do PWA - página inicial */}
-            <Route path="/" element={<HomePage />} />
-            
-            {/* Rota de diagnóstico PWA */}
+            {/* Rotas públicas */}
             <Route path="/diagnostic" element={<DiagnosticPage />} />
-            
-            {/* Rota de ajuda PWA */}
             <Route path="/pwa-help" element={<PWAHelpPage />} />
-            
-            {/* Rota de controle de manutenção */}
             <Route path="/maintenance-control" element={<MaintenanceControlPage />} />
+            <Route path="/terminal" element={<TerminalPage />} />
             
+            {/* Rotas protegidas - requer login */}
             <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+              <Route path="/" element={<DashboardPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/catalogo" element={<CatalogoPage />} />
               <Route path="/sync" element={<SyncPage />} />
@@ -53,7 +49,6 @@ const App = () => (
               <Route path="/dispositivos" element={<DispositivosPage />} />
               <Route path="/preco-mapeamento" element={<PrecoMapeamentoPage />} />
             </Route>
-            <Route path="/terminal" element={<TerminalPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
