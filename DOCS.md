@@ -369,7 +369,7 @@ Geração de áudio com cache.
 
 ### `sync-produtos`
 
-Sincronização incremental com API externa (Rissul/VTEX).
+Sincronização incremental com API externa do catálogo.
 
 - **Resumível:** Se interrompido, retoma do último `current_offset`.
 - **Batches:** 50 produtos por lote com delay de 800ms.
