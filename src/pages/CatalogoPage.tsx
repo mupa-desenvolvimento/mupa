@@ -18,6 +18,23 @@ export default function CatalogoPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [selectedProduct, setSelectedProduct] = useState<Tables<"produtos"> | null>(null);
+  const [showBarcode, setShowBarcode] = useState(false);
+  const barcodeRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    if (showBarcode && selectedProduct?.ean && barcodeRef.current) {
+      try {
+        JsBarcode(barcodeRef.current, selectedProduct.ean, {
+          format: "EAN13",
+          displayValue: true,
+          height: 80,
+          margin: 10,
+        });
+      } catch (e) {
+        console.error("Barcode error:", e);
+      }
+    }
+  }, [showBarcode, selectedProduct]);
 
   const { data, isLoading } = useProdutos({ q, page, per_page: 24 });
 
