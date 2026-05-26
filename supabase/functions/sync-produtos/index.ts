@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
         );
       }
 
-      const url = `${RISSUL_API}?_from=${offset}&_to=${offset + BATCH_SIZE - 1}`;
+      const url = `${CATALOG_API}?_from=${offset}&_to=${offset + BATCH_SIZE - 1}`;
       const res = await fetch(url, {
         headers: { "Accept": "application/json", "User-Agent": "MupaCatalog/1.0" },
       });
