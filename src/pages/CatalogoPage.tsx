@@ -174,7 +174,7 @@ export default function CatalogoPage() {
       )}
 
       {/* Product Detail Modal */}
-      <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
+      <Dialog open={!!selectedProduct} onOpenChange={() => { setSelectedProduct(null); setShowBarcode(false); }}>
         <DialogContent className="max-w-lg">
           {selectedProduct && (
             <>
