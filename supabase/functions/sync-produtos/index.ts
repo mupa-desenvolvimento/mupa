@@ -5,7 +5,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const CATALOG_API = "https://www.rissul.com.br/api/catalog_system/pub/products/search";
+const CATALOG_API = Deno.env.get("CATALOG_API_URL") ?? "";
 const BATCH_SIZE = 50;
 const DELAY_MS = 800;
 const MAX_EXECUTION_MS = 120_000; // 2 min safety margin
