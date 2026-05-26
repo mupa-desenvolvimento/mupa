@@ -47,7 +47,7 @@ export default function SyncPage() {
         <div>
           <h1 className="font-display text-3xl font-bold tracking-tight">Sincronização</h1>
           <p className="text-muted-foreground mt-1">
-            Gerencie a extração de dados da API Rissul
+            Gerencie a extração de dados da API do catálogo
           </p>
         </div>
         <Button onClick={handleSync} disabled={syncing} className="gap-2">
