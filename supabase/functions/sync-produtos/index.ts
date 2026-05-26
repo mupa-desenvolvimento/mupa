@@ -149,7 +149,7 @@ Deno.serve(async (req) => {
             descricao: produto.description ?? null,
             unidade_medida: item.measurementUnit ?? "un",
             multiplicador: item.unitMultiplier ?? 1,
-            link_rissul: produto.link ?? null,
+            link_externo: produto.link ?? null,
             slug: produto.linkText ?? null,
             clusters: produto.productClusters ?? null,
             preco,

@@ -249,9 +249,9 @@ export default function CatalogoPage() {
                     <p className="text-sm mt-1">{selectedProduct.descricao}</p>
                   </div>
                 )}
-                {selectedProduct.link_rissul && (
+                {selectedProduct.link_externo && (
                   <a
-                    href={selectedProduct.link_rissul}
+                    href={selectedProduct.link_externo}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-primary underline"
