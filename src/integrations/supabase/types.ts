@@ -740,6 +740,8 @@ export type Database = {
       }
       generate_dispositivo_codigo: { Args: never; Returns: string }
       generate_empresa_codigo: { Args: never; Returns: string }
+      has_empresa_access: { Args: { _empresa_id: string }; Returns: boolean }
+      is_empresa_admin: { Args: { _empresa_id: string }; Returns: boolean }
       random_base32_code: { Args: { len?: number }; Returns: string }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
