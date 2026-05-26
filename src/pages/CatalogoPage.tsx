@@ -183,12 +183,20 @@ export default function CatalogoPage() {
               </DialogHeader>
               <div className="space-y-4 mt-2">
                 {getImageUrl(selectedProduct) && (
-                  <div className="bg-muted rounded-lg flex items-center justify-center p-4">
-                    <img
-                      src={getImageUrl(selectedProduct)!}
-                      alt={selectedProduct.nome}
-                      className="max-h-48 object-contain"
-                    />
+                  <div
+                    className="bg-muted rounded-lg flex items-center justify-center p-4 cursor-pointer hover:bg-muted/70 transition-colors"
+                    onClick={() => setShowBarcode((v) => !v)}
+                    title={showBarcode ? "Mostrar imagem" : "Mostrar código de barras"}
+                  >
+                    {showBarcode ? (
+                      <svg ref={barcodeRef} />
+                    ) : (
+                      <img
+                        src={getImageUrl(selectedProduct)!}
+                        alt={selectedProduct.nome}
+                        className="max-h-48 object-contain"
+                      />
+                    )}
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3 text-sm">
