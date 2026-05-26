@@ -125,7 +125,7 @@ export default function AppSidebar() {
           Sair
         </button>
         <p className="text-xs text-sidebar-foreground/40">
-          Catálogo Rissul v1.0
+          Catálogo v1.0
         </p>
       </div>
     </aside>
