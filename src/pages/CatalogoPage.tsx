@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import JsBarcode from "jsbarcode";
 import { useProdutos } from "@/hooks/useProdutos";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
