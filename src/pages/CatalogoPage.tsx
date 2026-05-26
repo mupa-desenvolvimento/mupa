@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import JsBarcode from "jsbarcode";
 import { useProdutos } from "@/hooks/useProdutos";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,23 @@ export default function CatalogoPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [selectedProduct, setSelectedProduct] = useState<Tables<"produtos"> | null>(null);
+  const [showBarcode, setShowBarcode] = useState(false);
+  const barcodeRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    if (showBarcode && selectedProduct?.ean && barcodeRef.current) {
+      try {
+        JsBarcode(barcodeRef.current, selectedProduct.ean, {
+          format: "EAN13",
+          displayValue: true,
+          height: 80,
+          margin: 10,
+        });
+      } catch (e) {
+        console.error("Barcode error:", e);
+      }
+    }
+  }, [showBarcode, selectedProduct]);
 
   const { data, isLoading } = useProdutos({ q, page, per_page: 24 });
 
@@ -156,7 +174,7 @@ export default function CatalogoPage() {
       )}
 
       {/* Product Detail Modal */}
-      <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
+      <Dialog open={!!selectedProduct} onOpenChange={() => { setSelectedProduct(null); setShowBarcode(false); }}>
         <DialogContent className="max-w-lg">
           {selectedProduct && (
             <>
@@ -165,12 +183,20 @@ export default function CatalogoPage() {
               </DialogHeader>
               <div className="space-y-4 mt-2">
                 {getImageUrl(selectedProduct) && (
-                  <div className="bg-muted rounded-lg flex items-center justify-center p-4">
-                    <img
-                      src={getImageUrl(selectedProduct)!}
-                      alt={selectedProduct.nome}
-                      className="max-h-48 object-contain"
-                    />
+                  <div
+                    className="bg-muted rounded-lg flex items-center justify-center p-4 cursor-pointer hover:bg-muted/70 transition-colors"
+                    onClick={() => setShowBarcode((v) => !v)}
+                    title={showBarcode ? "Mostrar imagem" : "Mostrar código de barras"}
+                  >
+                    {showBarcode ? (
+                      <svg ref={barcodeRef} />
+                    ) : (
+                      <img
+                        src={getImageUrl(selectedProduct)!}
+                        alt={selectedProduct.nome}
+                        className="max-h-48 object-contain"
+                      />
+                    )}
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3 text-sm">
