@@ -169,7 +169,7 @@ export default function CatalogoPage() {
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <Package className="h-12 w-12 mb-3 opacity-30" />
           <p>Nenhum produto encontrado</p>
-          <p className="text-xs mt-1">Sincronize os dados do Rissul primeiro</p>
+          <p className="text-xs mt-1">Sincronize o catálogo primeiro</p>
         </div>
       )}
 
@@ -249,14 +249,14 @@ export default function CatalogoPage() {
                     <p className="text-sm mt-1">{selectedProduct.descricao}</p>
                   </div>
                 )}
-                {selectedProduct.link_rissul && (
+                {selectedProduct.link_externo && (
                   <a
-                    href={selectedProduct.link_rissul}
+                    href={selectedProduct.link_externo}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-primary underline"
                   >
-                    Ver no Rissul →
+                    Ver produto →
                   </a>
                 )}
               </div>

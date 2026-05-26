@@ -5,7 +5,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const RISSUL_API = "https://www.rissul.com.br/api/catalog_system/pub/products/search";
+const CATALOG_API = Deno.env.get("CATALOG_API_URL") ?? "";
 const BATCH_SIZE = 50;
 const DELAY_MS = 800;
 const MAX_EXECUTION_MS = 120_000; // 2 min safety margin
@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
         );
       }
 
-      const url = `${RISSUL_API}?_from=${offset}&_to=${offset + BATCH_SIZE - 1}`;
+      const url = `${CATALOG_API}?_from=${offset}&_to=${offset + BATCH_SIZE - 1}`;
       const res = await fetch(url, {
         headers: { "Accept": "application/json", "User-Agent": "MupaCatalog/1.0" },
       });
@@ -149,7 +149,7 @@ Deno.serve(async (req) => {
             descricao: produto.description ?? null,
             unidade_medida: item.measurementUnit ?? "un",
             multiplicador: item.unitMultiplier ?? 1,
-            link_rissul: produto.link ?? null,
+            link_externo: produto.link ?? null,
             slug: produto.linkText ?? null,
             clusters: produto.productClusters ?? null,
             preco,

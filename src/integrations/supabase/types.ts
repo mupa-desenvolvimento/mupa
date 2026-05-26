@@ -444,7 +444,7 @@ export type Database = {
           imagem_local: string | null
           imagem_url_azure: string | null
           imagem_url_vtex: string | null
-          link_rissul: string | null
+          link_externo: string | null
           marca: string | null
           multiplicador: number | null
           nome: string
@@ -469,7 +469,7 @@ export type Database = {
           imagem_local?: string | null
           imagem_url_azure?: string | null
           imagem_url_vtex?: string | null
-          link_rissul?: string | null
+          link_externo?: string | null
           marca?: string | null
           multiplicador?: number | null
           nome: string
@@ -494,7 +494,7 @@ export type Database = {
           imagem_local?: string | null
           imagem_url_azure?: string | null
           imagem_url_vtex?: string | null
-          link_rissul?: string | null
+          link_externo?: string | null
           marca?: string | null
           multiplicador?: number | null
           nome?: string

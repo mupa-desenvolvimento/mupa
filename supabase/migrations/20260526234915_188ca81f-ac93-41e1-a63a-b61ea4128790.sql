@@ -1,0 +1,1 @@
+ALTER TABLE public.produtos RENAME COLUMN link_rissul TO link_externo;

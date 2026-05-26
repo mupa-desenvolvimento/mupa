@@ -66,7 +66,7 @@ const sections: { title: string; endpoints: Endpoint[] }[] = [
       {
         method: "POST",
         path: `/sync-produtos`,
-        description: "Inicia sincronização incremental com Rissul (continua de onde parou)",
+        description: "Inicia sincronização incremental do catálogo (continua de onde parou)",
         curl: `curl -X POST "${BASE_URL}/sync-produtos"`,
       },
     ],

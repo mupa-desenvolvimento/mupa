@@ -105,7 +105,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="font-display text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground mt-1">
-            Visão geral do catálogo de produtos Rissul
+            Visão geral do catálogo de produtos
           </p>
         </div>
         <Button
