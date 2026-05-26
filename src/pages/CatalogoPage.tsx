@@ -169,7 +169,7 @@ export default function CatalogoPage() {
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <Package className="h-12 w-12 mb-3 opacity-30" />
           <p>Nenhum produto encontrado</p>
-          <p className="text-xs mt-1">Sincronize os dados do Rissul primeiro</p>
+          <p className="text-xs mt-1">Sincronize o catálogo primeiro</p>
         </div>
       )}
 
