@@ -256,7 +256,7 @@ export default function CatalogoPage() {
                     rel="noopener noreferrer"
                     className="text-sm text-primary underline"
                   >
-                    Ver no Rissul →
+                    Ver produto →
                   </a>
                 )}
               </div>
