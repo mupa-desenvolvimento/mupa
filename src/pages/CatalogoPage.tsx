@@ -22,19 +22,20 @@ export default function CatalogoPage() {
   const barcodeRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
-    if (showBarcode && selectedProduct?.ean && barcodeRef.current) {
+    if (selectedProduct?.ean && barcodeRef.current) {
       try {
         JsBarcode(barcodeRef.current, selectedProduct.ean, {
           format: "EAN13",
           displayValue: true,
-          height: 80,
-          margin: 10,
+          height: 70,
+          margin: 8,
+          background: "#ffffff",
         });
       } catch (e) {
         console.error("Barcode error:", e);
       }
     }
-  }, [showBarcode, selectedProduct]);
+  }, [selectedProduct]);
 
   const { data, isLoading } = useProdutos({ q, page, per_page: 24 });
 
@@ -175,28 +176,25 @@ export default function CatalogoPage() {
 
       {/* Product Detail Modal */}
       <Dialog open={!!selectedProduct} onOpenChange={() => { setSelectedProduct(null); setShowBarcode(false); }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           {selectedProduct && (
             <>
               <DialogHeader>
-                <DialogTitle className="font-display">{selectedProduct.nome}</DialogTitle>
+                <DialogTitle className="font-display pr-6">{selectedProduct.nome}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 mt-2">
                 {getImageUrl(selectedProduct) && (
-                  <div
-                    className="bg-muted rounded-lg flex items-center justify-center p-4 cursor-pointer hover:bg-muted/70 transition-colors"
-                    onClick={() => setShowBarcode((v) => !v)}
-                    title={showBarcode ? "Mostrar imagem" : "Mostrar código de barras"}
-                  >
-                    {showBarcode ? (
-                      <svg ref={barcodeRef} />
-                    ) : (
-                      <img
-                        src={getImageUrl(selectedProduct)!}
-                        alt={selectedProduct.nome}
-                        className="max-h-48 object-contain"
-                      />
-                    )}
+                  <div className="bg-muted rounded-lg flex items-center justify-center p-4">
+                    <img
+                      src={getImageUrl(selectedProduct)!}
+                      alt={selectedProduct.nome}
+                      className="max-h-40 sm:max-h-48 object-contain"
+                    />
+                  </div>
+                )}
+                {selectedProduct.ean && (
+                  <div className="bg-white rounded-lg flex items-center justify-center p-3 overflow-x-auto">
+                    <svg ref={barcodeRef} />
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3 text-sm">
