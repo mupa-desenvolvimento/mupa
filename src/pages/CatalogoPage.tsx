@@ -18,7 +18,7 @@ export default function CatalogoPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [selectedProduct, setSelectedProduct] = useState<Tables<"produtos"> | null>(null);
-  const [showBarcode, setShowBarcode] = useState(false);
+  const [, setShowBarcode] = useState(false);
   const barcodeRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
