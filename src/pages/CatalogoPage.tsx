@@ -206,7 +206,7 @@ export default function CatalogoPage() {
                 )}
                 {selectedProduct.ean && (
                   <div className="bg-white rounded-lg flex items-center justify-center p-3 overflow-x-auto">
-                    <svg ref={barcodeRef} />
+                    <BarcodeSvg ean={selectedProduct.ean} />
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3 text-sm">
