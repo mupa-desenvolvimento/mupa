@@ -14,28 +14,40 @@ import { Search, ChevronLeft, ChevronRight, Package, Tag } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 import { motion } from "framer-motion";
 
-export default function CatalogoPage() {
-  const [q, setQ] = useState("");
-  const [page, setPage] = useState(1);
-  const [selectedProduct, setSelectedProduct] = useState<Tables<"produtos"> | null>(null);
-  
-  const barcodeRef = useRef<SVGSVGElement | null>(null);
-
+function BarcodeSvg({ ean }: { ean: string }) {
+  const ref = useRef<SVGSVGElement | null>(null);
   useEffect(() => {
-    if (selectedProduct?.ean && barcodeRef.current) {
+    if (!ref.current) return;
+    const clean = (ean || "").replace(/\D/g, "");
+    const tryFormats: Array<{ format: string; value: string }> = [];
+    if (clean.length === 13) tryFormats.push({ format: "EAN13", value: clean });
+    else if (clean.length === 12) tryFormats.push({ format: "EAN13", value: clean });
+    else if (clean.length === 8) tryFormats.push({ format: "EAN8", value: clean });
+    tryFormats.push({ format: "CODE128", value: clean || ean });
+
+    for (const f of tryFormats) {
       try {
-        JsBarcode(barcodeRef.current, selectedProduct.ean, {
-          format: "EAN13",
+        JsBarcode(ref.current, f.value, {
+          format: f.format,
           displayValue: true,
           height: 70,
           margin: 8,
           background: "#ffffff",
         });
-      } catch (e) {
-        console.error("Barcode error:", e);
+        return;
+      } catch {
+        /* try next */
       }
     }
-  }, [selectedProduct]);
+  }, [ean]);
+  return <svg ref={ref} className="max-w-full" />;
+}
+
+export default function CatalogoPage() {
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [selectedProduct, setSelectedProduct] = useState<Tables<"produtos"> | null>(null);
+
 
   const { data, isLoading } = useProdutos({ q, page, per_page: 24 });
 
@@ -194,7 +206,7 @@ export default function CatalogoPage() {
                 )}
                 {selectedProduct.ean && (
                   <div className="bg-white rounded-lg flex items-center justify-center p-3 overflow-x-auto">
-                    <svg ref={barcodeRef} />
+                    <BarcodeSvg ean={selectedProduct.ean} />
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3 text-sm">
