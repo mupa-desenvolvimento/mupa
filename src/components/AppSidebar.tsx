@@ -29,7 +29,12 @@ const navItems = [
   { to: "/preco-mapeamento", icon: DollarSign, label: "Mapeamento Preços" },
 ];
 
-export default function AppSidebar() {
+interface AppSidebarProps {
+  mobileOpen?: boolean;
+  onNavigate?: () => void;
+}
+
+export default function AppSidebar({ mobileOpen = false, onNavigate }: AppSidebarProps = {}) {
   const location = useLocation();
   const { user, signOut } = useAuth();
   const queryClient = useQueryClient();
@@ -66,7 +71,11 @@ export default function AppSidebar() {
   };
 
   return (
-    <aside className="sidebar-gradient fixed left-0 top-0 h-screen w-64 flex flex-col z-50">
+    <aside
+      className={`sidebar-gradient fixed left-0 top-0 h-screen w-64 flex flex-col z-50 transition-transform duration-200 md:translate-x-0 ${
+        mobileOpen ? "translate-x-0" : "-translate-x-full"
+      }`}
+    >
       {/* Logo */}
       <div className="flex items-center gap-3 px-6 py-6 border-b border-sidebar-border">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sidebar-primary">
@@ -89,6 +98,7 @@ export default function AppSidebar() {
             <NavLink
               key={item.to}
               to={item.to}
+              onClick={onNavigate}
               className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
                 isActive
                   ? "bg-sidebar-accent text-sidebar-primary"
