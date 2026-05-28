@@ -18,7 +18,7 @@ export default function CatalogoPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [selectedProduct, setSelectedProduct] = useState<Tables<"produtos"> | null>(null);
-  const [, setShowBarcode] = useState(false);
+  
   const barcodeRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
@@ -175,7 +175,7 @@ export default function CatalogoPage() {
       )}
 
       {/* Product Detail Modal */}
-      <Dialog open={!!selectedProduct} onOpenChange={() => { setSelectedProduct(null); setShowBarcode(false); }}>
+      <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           {selectedProduct && (
             <>
