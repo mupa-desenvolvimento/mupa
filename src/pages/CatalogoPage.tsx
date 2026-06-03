@@ -217,9 +217,18 @@ export default function CatalogoPage() {
 
       {/* Product Detail Modal */}
       <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="max-w-lg max-h-[90vh] overflow-y-auto"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
           {selectedProduct && (
-            <>
+            <motion.div
+              key={selectedProduct.id}
+              initial={{ opacity: 0, x: swipeDir === "left" ? 40 : swipeDir === "right" ? -40 : 0 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.2 }}
+            >
               <DialogHeader>
                 <DialogTitle className="font-display pr-6">{selectedProduct.nome}</DialogTitle>
               </DialogHeader>
