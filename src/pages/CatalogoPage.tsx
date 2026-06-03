@@ -308,7 +308,7 @@ export default function CatalogoPage() {
                   </a>
                 )}
               </div>
-            </>
+            </motion.div>
           )}
         </DialogContent>
       </Dialog>
