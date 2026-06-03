@@ -47,9 +47,38 @@ export default function CatalogoPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [selectedProduct, setSelectedProduct] = useState<Tables<"produtos"> | null>(null);
-
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const [swipeDir, setSwipeDir] = useState<"left" | "right" | null>(null);
 
   const { data, isLoading } = useProdutos({ q, page, per_page: 24 });
+
+  const navigateProduct = (dir: 1 | -1) => {
+    if (!data || !selectedProduct) return;
+    const idx = data.produtos.findIndex((p) => p.id === selectedProduct.id);
+    if (idx === -1) return;
+    const next = data.produtos[idx + dir];
+    if (next) {
+      setSwipeDir(dir === 1 ? "left" : "right");
+      setSelectedProduct(next);
+      setTimeout(() => setSwipeDir(null), 250);
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const start = touchStartRef.current;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    touchStartRef.current = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      navigateProduct(dx < 0 ? 1 : -1);
+    }
+  };
 
   const getImageUrl = (p: Tables<"produtos">) => {
     return p.imagem_url_vtex || p.imagem_url_azure || null;
