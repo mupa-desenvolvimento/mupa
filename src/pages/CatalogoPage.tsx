@@ -250,9 +250,19 @@ export default function CatalogoPage() {
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <Package className="h-12 w-12 mb-3 opacity-30" />
-          <p>Nenhum produto encontrado</p>
-          <p className="text-xs mt-1">Sincronize o catálogo primeiro</p>
+          {tab === "favoritos" ? (
+            <>
+              <Heart className="h-12 w-12 mb-3 opacity-30" />
+              <p>Nenhum favorito ainda</p>
+              <p className="text-xs mt-1">Toque no coração de um produto para favoritar</p>
+            </>
+          ) : (
+            <>
+              <Package className="h-12 w-12 mb-3 opacity-30" />
+              <p>Nenhum produto encontrado</p>
+              <p className="text-xs mt-1">Sincronize o catálogo primeiro</p>
+            </>
+          )}
         </div>
       )}
 
