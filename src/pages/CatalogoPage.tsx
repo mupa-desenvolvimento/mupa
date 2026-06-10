@@ -380,31 +380,24 @@ export default function CatalogoPage() {
       </Dialog>
 
       {/* Floating Action Button - alterna entre Todos e Favoritos (mobile) */}
-      <AnimatePresence mode="wait">
-        <motion.button
-          key={tab}
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.8, opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          type="button"
-          aria-label={tab === "todos" ? "Ver favoritos" : "Ver todos"}
-          onClick={() => setTab(tab === "todos" ? "favoritos" : "todos")}
-          className="md:hidden fixed bottom-20 right-4 z-50 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center active:scale-95 transition-transform"
-          style={{ marginBottom: "env(safe-area-inset-bottom)" }}
-        >
-          {tab === "todos" ? (
-            <Heart className="h-6 w-6" />
-          ) : (
-            <List className="h-6 w-6" />
-          )}
-          {tab === "todos" && favoritos.length > 0 && (
-            <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-              {favoritos.length}
-            </span>
-          )}
-        </motion.button>
-      </AnimatePresence>
+      <button
+        type="button"
+        aria-label={tab === "todos" ? "Ver favoritos" : "Ver todos"}
+        onClick={() => setTab(tab === "todos" ? "favoritos" : "todos")}
+        className="md:hidden fixed bottom-20 right-4 z-50 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center active:scale-95 transition-transform"
+        style={{ marginBottom: "env(safe-area-inset-bottom)" }}
+      >
+        {tab === "todos" ? (
+          <Heart className="h-6 w-6" />
+        ) : (
+          <List className="h-6 w-6" />
+        )}
+        {tab === "todos" && favoritos.length > 0 && (
+          <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+            {favoritos.length}
+          </span>
+        )}
+      </button>
     </div>
   );
 }
