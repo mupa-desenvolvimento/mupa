@@ -10,9 +10,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, ChevronLeft, ChevronRight, Package, Tag, Heart } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Package, Tag, Heart, List } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFavoritos } from "@/hooks/useFavoritos";
 import { cn } from "@/lib/utils";
@@ -378,6 +378,25 @@ export default function CatalogoPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Floating Action Button - alterna entre Todos e Favoritos (mobile) */}
+      <button
+        type="button"
+        aria-label={tab === "todos" ? "Ver favoritos" : "Ver todos"}
+        onClick={() => setTab(tab === "todos" ? "favoritos" : "todos")}
+        className="md:hidden fixed bottom-20 right-4 z-[100] h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-xl border-2 border-white flex items-center justify-center active:scale-95 transition-transform"
+      >
+        {tab === "todos" ? (
+          <Heart className="h-6 w-6" />
+        ) : (
+          <List className="h-6 w-6" />
+        )}
+        {tab === "todos" && favoritos.length > 0 && (
+          <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center border border-white">
+            {favoritos.length}
+          </span>
+        )}
+      </button>
     </div>
   );
 }
