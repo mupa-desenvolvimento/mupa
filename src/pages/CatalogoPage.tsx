@@ -10,9 +10,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, ChevronLeft, ChevronRight, Package, Tag } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Package, Tag, Heart } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 import { motion } from "framer-motion";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useFavoritos } from "@/hooks/useFavoritos";
+import { cn } from "@/lib/utils";
 
 function BarcodeSvg({ ean }: { ean: string }) {
   const ref = useRef<SVGSVGElement | null>(null);
@@ -46,11 +49,18 @@ function BarcodeSvg({ ean }: { ean: string }) {
 export default function CatalogoPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
+  const [tab, setTab] = useState<"todos" | "favoritos">("todos");
   const [selectedProduct, setSelectedProduct] = useState<Tables<"produtos"> | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [swipeDir, setSwipeDir] = useState<"left" | "right" | null>(null);
+  const { favoritos, isFavorito, toggleFavorito } = useFavoritos();
 
-  const { data, isLoading } = useProdutos({ q, page, per_page: 24 });
+  const { data, isLoading } = useProdutos({
+    q,
+    page,
+    per_page: 24,
+    eans: tab === "favoritos" ? favoritos : undefined,
+  });
 
   const navigateProduct = (dir: 1 | -1) => {
     if (!data || !selectedProduct) return;
@@ -100,7 +110,20 @@ export default function CatalogoPage() {
         </p>
       </div>
 
-      {/* Search */}
+      {/* Tabs + Search */}
+      <Tabs value={tab} onValueChange={(v) => { setTab(v as "todos" | "favoritos"); setPage(1); }}>
+        <TabsList>
+          <TabsTrigger value="todos">Todos</TabsTrigger>
+          <TabsTrigger value="favoritos" className="gap-1">
+            <Heart className="h-3.5 w-3.5" />
+            Favoritos
+            {favoritos.length > 0 && (
+              <span className="ml-1 text-xs text-muted-foreground">({favoritos.length})</span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       <div className="relative max-w-lg">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -172,6 +195,24 @@ export default function CatalogoPage() {
                 transition={{ duration: 0.2 }}
               >
                 {discount > 0 && <span className="promo-badge">-{discount}%</span>}
+                <button
+                  type="button"
+                  aria-label={isFavorito(p.ean) ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleFavorito(p.ean);
+                  }}
+                  className="absolute top-2 right-2 z-10 h-8 w-8 rounded-full bg-background/80 backdrop-blur flex items-center justify-center border border-border hover:bg-background transition-colors"
+                >
+                  <Heart
+                    className={cn(
+                      "h-4 w-4 transition-colors",
+                      isFavorito(p.ean)
+                        ? "fill-red-500 text-red-500"
+                        : "text-muted-foreground"
+                    )}
+                  />
+                </button>
                 <div className="aspect-square bg-muted flex items-center justify-center overflow-hidden">
                   {img ? (
                     <img
@@ -209,9 +250,19 @@ export default function CatalogoPage() {
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <Package className="h-12 w-12 mb-3 opacity-30" />
-          <p>Nenhum produto encontrado</p>
-          <p className="text-xs mt-1">Sincronize o catálogo primeiro</p>
+          {tab === "favoritos" ? (
+            <>
+              <Heart className="h-12 w-12 mb-3 opacity-30" />
+              <p>Nenhum favorito ainda</p>
+              <p className="text-xs mt-1">Toque no coração de um produto para favoritar</p>
+            </>
+          ) : (
+            <>
+              <Package className="h-12 w-12 mb-3 opacity-30" />
+              <p>Nenhum produto encontrado</p>
+              <p className="text-xs mt-1">Sincronize o catálogo primeiro</p>
+            </>
+          )}
         </div>
       )}
 
@@ -230,7 +281,22 @@ export default function CatalogoPage() {
               transition={{ duration: 0.2 }}
             >
               <DialogHeader>
-                <DialogTitle className="font-display pr-6">{selectedProduct.nome}</DialogTitle>
+                <DialogTitle className="font-display pr-16">{selectedProduct.nome}</DialogTitle>
+                <button
+                  type="button"
+                  aria-label={isFavorito(selectedProduct.ean) ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+                  onClick={() => toggleFavorito(selectedProduct.ean)}
+                  className="absolute top-4 right-12 h-8 w-8 rounded-full bg-muted flex items-center justify-center hover:bg-muted/70 transition-colors"
+                >
+                  <Heart
+                    className={cn(
+                      "h-4 w-4",
+                      isFavorito(selectedProduct.ean)
+                        ? "fill-red-500 text-red-500"
+                        : "text-muted-foreground"
+                    )}
+                  />
+                </button>
               </DialogHeader>
               <div className="space-y-4 mt-2">
                 {getImageUrl(selectedProduct) && (
