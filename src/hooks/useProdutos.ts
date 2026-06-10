@@ -8,6 +8,7 @@ interface ProdutosFilter {
   disponivel?: boolean;
   com_imagem?: boolean;
   promo?: boolean;
+  eans?: string[];
   page?: number;
   per_page?: number;
 }
@@ -37,6 +38,12 @@ export function useProdutos(filters: ProdutosFilter) {
       }
       if (filters.promo) {
         query = query.not("preco_lista", "is", null).gt("preco_lista", 0);
+      }
+      if (filters.eans) {
+        if (filters.eans.length === 0) {
+          return { produtos: [], total: 0, page, per_page, totalPages: 0 };
+        }
+        query = query.in("ean", filters.eans);
       }
 
       const from = (page - 1) * per_page;
