@@ -33,7 +33,7 @@ const produtoSchema = z.object({
 
 export default function CadastroProdutoPage() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ ean: "", nome: "", descricao: "", preco: "" });
+  const [form, setForm] = useState({ ean: "", nome: "", descricao: "", preco: "", imagem_url: "" });
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -42,6 +42,7 @@ export default function CadastroProdutoPage() {
       ean: form.ean,
       nome: form.nome,
       descricao: form.descricao || undefined,
+      imagem_url: form.imagem_url || undefined,
       preco: form.preco === "" ? NaN : Number(form.preco.replace(",", ".")),
     });
     if (!parsed.success) {
@@ -50,12 +51,14 @@ export default function CadastroProdutoPage() {
     }
     setSaving(true);
     try {
+      const imagemUrl = parsed.data.imagem_url && parsed.data.imagem_url !== "" ? parsed.data.imagem_url : null;
       const { error } = await supabase.from("produtos").insert({
         ean: parsed.data.ean,
         nome: parsed.data.nome,
         descricao: parsed.data.descricao ?? null,
         preco: parsed.data.preco,
         disponivel: true,
+        imagem_url_vtex: imagemUrl,
       });
       if (error) {
         if (error.code === "23505") {
@@ -66,12 +69,13 @@ export default function CadastroProdutoPage() {
         return;
       }
       toast.success("Produto cadastrado com sucesso!");
-      setForm({ ean: "", nome: "", descricao: "", preco: "" });
+      setForm({ ean: "", nome: "", descricao: "", preco: "", imagem_url: "" });
       navigate("/catalogo");
     } finally {
       setSaving(false);
     }
   };
+
 
   return (
     <div className="max-w-2xl mx-auto">
