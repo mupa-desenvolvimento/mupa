@@ -19,6 +19,13 @@ const produtoSchema = z.object({
     .regex(/^\d+$/, "EAN deve conter apenas números"),
   nome: z.string().trim().min(2, "Informe o nome").max(200, "Máx. 200 caracteres"),
   descricao: z.string().trim().max(2000, "Máx. 2000 caracteres").optional(),
+  imagem_url: z
+    .string()
+    .trim()
+    .url("URL da imagem inválida")
+    .max(2000, "URL muito longa")
+    .optional()
+    .or(z.literal("")),
   preco: z
     .number({ invalid_type_error: "Preço inválido" })
     .nonnegative("Preço deve ser ≥ 0"),
