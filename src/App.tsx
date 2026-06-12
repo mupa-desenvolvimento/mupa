@@ -8,6 +8,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import AppLayout from "./components/AppLayout";
 import DashboardPage from "./pages/DashboardPage";
 import CatalogoPage from "./pages/CatalogoPage";
+import CadastroProdutoPage from "./pages/CadastroProdutoPage";
 import SyncPage from "./pages/SyncPage";
 import ImagensPage from "./pages/ImagensPage";
 import DocsPage from "./pages/DocsPage";
