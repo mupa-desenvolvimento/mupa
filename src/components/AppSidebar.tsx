@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   LayoutDashboard,
   Package,
+  PackagePlus,
   RefreshCw,
   Image,
   FileText,
@@ -21,6 +22,7 @@ import { PWA_UPDATE_EVENT, applyPwaUpdate } from "@/lib/pwaRegister";
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/catalogo", icon: Package, label: "Catálogo" },
+  { to: "/produtos/novo", icon: PackagePlus, label: "Cadastrar Produto" },
   { to: "/sync", icon: RefreshCw, label: "Sincronização" },
   { to: "/imagens", icon: Image, label: "Imagens" },
   { to: "/docs", icon: FileText, label: "API Docs" },
