@@ -306,7 +306,7 @@ export default function CatalogoPage() {
       )}
 
       {/* Product Detail Modal */}
-      <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
+      <Dialog open={!!selectedProduct} onOpenChange={(open) => { if (!open) { setSelectedProduct(null); setEditingImage(false); setImageUrlInput(""); } }}>
         <DialogContent
           className="max-w-lg max-h-[90vh] overflow-y-auto"
           onTouchStart={handleTouchStart}
