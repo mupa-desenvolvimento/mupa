@@ -338,15 +338,92 @@ export default function CatalogoPage() {
                 </button>
               </DialogHeader>
               <div className="space-y-4 mt-2">
-                {getImageUrl(selectedProduct) && (
-                  <div className="bg-muted rounded-lg flex items-center justify-center p-4">
-                    <img
-                      src={getImageUrl(selectedProduct)!}
-                      alt={selectedProduct.nome}
-                      className="max-h-40 sm:max-h-48 object-contain"
-                    />
-                  </div>
-                )}
+                <div className="bg-muted rounded-lg flex flex-col items-center justify-center p-4 gap-3 relative group">
+                  {getImageUrl(selectedProduct) ? (
+                    <>
+                      <img
+                        src={getImageUrl(selectedProduct)!}
+                        alt={selectedProduct.nome}
+                        className="max-h-40 sm:max-h-48 object-contain"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImageUrlInput(selectedProduct.imagem_url_vtex ?? "");
+                          setEditingImage(true);
+                        }}
+                        className="absolute top-2 right-2 h-8 w-8 rounded-full bg-background/90 border flex items-center justify-center hover:bg-background"
+                        aria-label="Editar imagem"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  ) : editingImage ? null : (
+                    <>
+                      <ImagePlus className="h-10 w-10 text-muted-foreground/40" />
+                      <p className="text-xs text-muted-foreground">Sem imagem</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setImageUrlInput("");
+                          setEditingImage(true);
+                        }}
+                      >
+                        <ImagePlus className="h-4 w-4 mr-1.5" />
+                        Adicionar imagem
+                      </Button>
+                    </>
+                  )}
+                  {editingImage && (
+                    <div className="w-full space-y-2">
+                      <Input
+                        type="url"
+                        placeholder="https://exemplo.com/imagem.jpg"
+                        value={imageUrlInput}
+                        onChange={(e) => setImageUrlInput(e.target.value)}
+                        autoFocus
+                      />
+                      {imageUrlInput && (
+                        <div className="bg-background rounded border aspect-square max-h-32 flex items-center justify-center overflow-hidden">
+                          <img
+                            src={imageUrlInput}
+                            alt="Pré-visualização"
+                            className="h-full w-full object-contain p-2"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+                            }}
+                          />
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleSaveImage}
+                          disabled={savingImage}
+                          className="flex-1"
+                        >
+                          {savingImage ? "A guardar..." : "Guardar"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setEditingImage(false);
+                            setImageUrlInput("");
+                          }}
+                          disabled={savingImage}
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {selectedProduct.ean && (
                   <div className="bg-white rounded-lg flex items-center justify-center p-3 overflow-x-auto">
                     <BarcodeSvg ean={selectedProduct.ean} />
