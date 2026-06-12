@@ -10,12 +10,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, ChevronLeft, ChevronRight, Package, Tag, Heart, List } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Package, Tag, Heart, List, ImagePlus, Pencil } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 import { motion, AnimatePresence } from "framer-motion";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFavoritos } from "@/hooks/useFavoritos";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 function BarcodeSvg({ ean }: { ean: string }) {
   const ref = useRef<SVGSVGElement | null>(null);
