@@ -28,6 +28,7 @@ const primary = [
 ];
 
 const more = [
+  { to: "/produtos/novo", icon: PackagePlus, label: "Cadastrar Produto" },
   { to: "/imagens", icon: ImageIcon, label: "Imagens" },
   { to: "/terminal-media", icon: Monitor, label: "Mídia Terminal" },
   { to: "/preco-mapeamento", icon: DollarSign, label: "Mapeamento Preços" },
