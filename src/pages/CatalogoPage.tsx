@@ -57,6 +57,10 @@ export default function CatalogoPage() {
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [swipeDir, setSwipeDir] = useState<"left" | "right" | null>(null);
   const { favoritos, isFavorito, toggleFavorito } = useFavoritos();
+  const queryClient = useQueryClient();
+  const [editingImage, setEditingImage] = useState(false);
+  const [imageUrlInput, setImageUrlInput] = useState("");
+  const [savingImage, setSavingImage] = useState(false);
 
   const { data, isLoading } = useProdutos({
     q,
