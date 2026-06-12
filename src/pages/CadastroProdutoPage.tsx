@@ -149,6 +149,36 @@ export default function CadastroProdutoPage() {
               />
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="imagem_url">URL da imagem</Label>
+              <Input
+                id="imagem_url"
+                type="url"
+                inputMode="url"
+                placeholder="https://exemplo.com/imagem.jpg"
+                value={form.imagem_url}
+                onChange={(e) => setForm({ ...form, imagem_url: e.target.value })}
+                maxLength={2000}
+              />
+              <div className="aspect-square w-full max-w-[220px] rounded-lg border bg-muted overflow-hidden flex items-center justify-center">
+                {form.imagem_url ? (
+                  <img
+                    src={form.imagem_url}
+                    alt="Pré-visualização"
+                    className="h-full w-full object-contain p-2"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+                    }}
+                  />
+                ) : (
+                  <PackagePlus className="h-10 w-10 text-muted-foreground/40" />
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Opcional. Cole o link público de uma imagem (JPG, PNG ou WEBP).
+              </p>
+            </div>
+
             <div className="flex gap-3 pt-2">
               <Button type="submit" disabled={saving} className="flex-1">
                 {saving ? "A guardar..." : "Cadastrar produto"}
