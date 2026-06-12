@@ -108,6 +108,38 @@ export default function CatalogoPage() {
     return 0;
   };
 
+  const handleSaveImage = async () => {
+    if (!selectedProduct) return;
+    const url = imageUrlInput.trim();
+    if (url) {
+      try {
+        new URL(url);
+      } catch {
+        toast.error("URL inválida");
+        return;
+      }
+    }
+    setSavingImage(true);
+    try {
+      const { error } = await supabase
+        .from("produtos")
+        .update({ imagem_url_vtex: url || null })
+        .eq("id", selectedProduct.id);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      setSelectedProduct({ ...selectedProduct, imagem_url_vtex: url || null });
+      await queryClient.invalidateQueries({ queryKey: ["produtos"] });
+      toast.success(url ? "Imagem atualizada" : "Imagem removida");
+      setEditingImage(false);
+      setImageUrlInput("");
+    } finally {
+      setSavingImage(false);
+    }
+  };
+
+
   return (
     <div className="space-y-6">
       <div>
