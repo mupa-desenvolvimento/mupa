@@ -439,6 +439,7 @@ export type Database = {
           descricao: string | null
           disponivel: boolean | null
           ean: string
+          favorito_atacado: boolean
           id: string
           imagem_baixada: boolean | null
           imagem_local: string | null
@@ -464,6 +465,7 @@ export type Database = {
           descricao?: string | null
           disponivel?: boolean | null
           ean: string
+          favorito_atacado?: boolean
           id?: string
           imagem_baixada?: boolean | null
           imagem_local?: string | null
@@ -489,6 +491,7 @@ export type Database = {
           descricao?: string | null
           disponivel?: boolean | null
           ean?: string
+          favorito_atacado?: boolean
           id?: string
           imagem_baixada?: boolean | null
           imagem_local?: string | null

@@ -8,6 +8,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import AppLayout from "./components/AppLayout";
 import DashboardPage from "./pages/DashboardPage";
 import CatalogoPage from "./pages/CatalogoPage";
+import FavoritosAtacadoPage from "./pages/FavoritosAtacadoPage";
 import CadastroProdutoPage from "./pages/CadastroProdutoPage";
 import SyncPage from "./pages/SyncPage";
 import ImagensPage from "./pages/ImagensPage";
@@ -43,6 +44,7 @@ const App = () => (
               <Route path="/" element={<DashboardPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/catalogo" element={<CatalogoPage />} />
+              <Route path="/favoritos-atacado" element={<FavoritosAtacadoPage />} />
               <Route path="/produtos/novo" element={<CadastroProdutoPage />} />
               <Route path="/sync" element={<SyncPage />} />
               <Route path="/imagens" element={<ImagensPage />} />

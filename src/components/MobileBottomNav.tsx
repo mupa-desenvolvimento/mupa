@@ -10,6 +10,7 @@ import {
   FileText,
   MoreHorizontal,
   PackagePlus,
+  Star,
 } from "lucide-react";
 import { useState } from "react";
 import {
@@ -23,12 +24,13 @@ import {
 const primary = [
   { to: "/", icon: LayoutDashboard, label: "Início" },
   { to: "/catalogo", icon: Package, label: "Catálogo" },
-  { to: "/sync", icon: RefreshCw, label: "Sync" },
+  { to: "/favoritos-atacado", icon: Star, label: "Atacado" },
   { to: "/dispositivos", icon: Smartphone, label: "Disp." },
 ];
 
 const more = [
   { to: "/produtos/novo", icon: PackagePlus, label: "Cadastrar Produto" },
+  { to: "/sync", icon: RefreshCw, label: "Sincronização" },
   { to: "/imagens", icon: ImageIcon, label: "Imagens" },
   { to: "/terminal-media", icon: Monitor, label: "Mídia Terminal" },
   { to: "/preco-mapeamento", icon: DollarSign, label: "Mapeamento Preços" },

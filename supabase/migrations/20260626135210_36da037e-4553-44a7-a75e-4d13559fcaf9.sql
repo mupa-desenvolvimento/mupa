@@ -1,0 +1,2 @@
+ALTER TABLE public.produtos ADD COLUMN IF NOT EXISTS favorito_atacado boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_produtos_favorito_atacado ON public.produtos(favorito_atacado) WHERE favorito_atacado = true;

@@ -9,6 +9,7 @@ interface ProdutosFilter {
   com_imagem?: boolean;
   promo?: boolean;
   eans?: string[];
+  favorito_atacado?: boolean;
   page?: number;
   per_page?: number;
 }
@@ -44,6 +45,9 @@ export function useProdutos(filters: ProdutosFilter) {
           return { produtos: [], total: 0, page, per_page, totalPages: 0 };
         }
         query = query.in("ean", filters.eans);
+      }
+      if (filters.favorito_atacado) {
+        query = query.eq("favorito_atacado", true);
       }
 
       const from = (page - 1) * per_page;
