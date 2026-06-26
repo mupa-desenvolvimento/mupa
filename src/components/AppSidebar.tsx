@@ -14,6 +14,7 @@ import {
   LogOut,
   Smartphone,
   DollarSign,
+  Star,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ import { PWA_UPDATE_EVENT, applyPwaUpdate } from "@/lib/pwaRegister";
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/catalogo", icon: Package, label: "Catálogo" },
+  { to: "/favoritos-atacado", icon: Star, label: "Favoritos Atacado" },
   { to: "/produtos/novo", icon: PackagePlus, label: "Cadastrar Produto" },
   { to: "/sync", icon: RefreshCw, label: "Sincronização" },
   { to: "/imagens", icon: Image, label: "Imagens" },
