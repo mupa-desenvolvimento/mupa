@@ -144,6 +144,66 @@ export default function CatalogoPage() {
     }
   };
 
+  const openPriceEditor = () => {
+    if (!selectedProduct) return;
+    const oferta = selectedProduct.preco_lista != null && selectedProduct.preco != null && selectedProduct.preco_lista > selectedProduct.preco;
+    setPrecoInput(
+      oferta
+        ? String(selectedProduct.preco_lista ?? "")
+        : String(selectedProduct.preco ?? "")
+    );
+    setPrecoOfertaInput(oferta ? String(selectedProduct.preco ?? "") : "");
+    setEditingPrice(true);
+  };
+
+  const handleSavePrice = async () => {
+    if (!selectedProduct) return;
+    const parseNum = (v: string) => {
+      const s = v.trim().replace(",", ".");
+      if (s === "") return null;
+      const n = Number(s);
+      return Number.isFinite(n) ? n : NaN;
+    };
+    const preco = parseNum(precoInput);
+    const oferta = parseNum(precoOfertaInput);
+    if (preco === null || Number.isNaN(preco) || preco < 0) {
+      toast.error("Informe um preço válido");
+      return;
+    }
+    if (oferta !== null && (Number.isNaN(oferta) || oferta < 0)) {
+      toast.error("Preço em oferta inválido");
+      return;
+    }
+    if (oferta !== null && oferta >= preco) {
+      toast.error("O preço em oferta deve ser menor que o preço normal");
+      return;
+    }
+    const hasOferta = oferta !== null;
+    const update = {
+      preco: hasOferta ? oferta : preco,
+      preco_lista: hasOferta ? preco : null,
+    };
+    setSavingPrice(true);
+    try {
+      const { error } = await supabase
+        .from("produtos")
+        .update(update)
+        .eq("id", selectedProduct.id);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      setSelectedProduct({ ...selectedProduct, ...update });
+      await queryClient.invalidateQueries({ queryKey: ["produtos"] });
+      toast.success("Preço atualizado");
+      setEditingPrice(false);
+    } finally {
+      setSavingPrice(false);
+    }
+  };
+
+
+
 
   return (
     <div className="space-y-6">
