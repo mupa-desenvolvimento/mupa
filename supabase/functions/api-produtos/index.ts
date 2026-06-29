@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
 
       if (directResults && directResults.length >= 3) {
         return new Response(
-          JSON.stringify({ produtos: directResults, match_type: "direct", total: directResults.length }),
+          JSON.stringify({ produtos: directResults.map(enrichPreco), match_type: "direct", total: directResults.length }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
       if (!LOVABLE_API_KEY) {
         return new Response(
-          JSON.stringify({ produtos: directResults ?? [], match_type: "direct", total: directResults?.length ?? 0 }),
+          JSON.stringify({ produtos: (directResults ?? []).map(enrichPreco), match_type: "direct", total: directResults?.length ?? 0 }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
