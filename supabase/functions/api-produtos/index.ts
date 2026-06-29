@@ -15,6 +15,30 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
+  // Enriquece o produto com campos de oferta calculados a partir de preco/preco_lista.
+  // Convenção: quando há oferta, `preco` = preço promocional e `preco_lista` = preço normal (riscado).
+  const enrichPreco = <T extends Record<string, any>>(p: T): T & {
+    preco_atual: number | null;
+    preco_original: number | null;
+    em_oferta: boolean;
+    desconto_percent: number | null;
+    economia: number | null;
+  } => {
+    const preco = typeof p?.preco === "number" ? p.preco : p?.preco != null ? Number(p.preco) : null;
+    const precoLista = typeof p?.preco_lista === "number" ? p.preco_lista : p?.preco_lista != null ? Number(p.preco_lista) : null;
+    const emOferta = preco != null && precoLista != null && precoLista > preco;
+    const desconto = emOferta ? Math.round(((precoLista! - preco!) / precoLista!) * 100) : null;
+    const economia = emOferta ? Number((precoLista! - preco!).toFixed(2)) : null;
+    return {
+      ...p,
+      preco_atual: preco,
+      preco_original: emOferta ? precoLista : null,
+      em_oferta: emOferta,
+      desconto_percent: desconto,
+      economia,
+    };
+  };
+
   const url = new URL(req.url);
   const ean = url.searchParams.get("ean");
   const query = url.searchParams.get("q");
