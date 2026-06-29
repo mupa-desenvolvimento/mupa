@@ -61,6 +61,11 @@ export default function CatalogoPage() {
   const [editingImage, setEditingImage] = useState(false);
   const [imageUrlInput, setImageUrlInput] = useState("");
   const [savingImage, setSavingImage] = useState(false);
+  const [editingPrice, setEditingPrice] = useState(false);
+  const [precoInput, setPrecoInput] = useState("");
+  const [precoOfertaInput, setPrecoOfertaInput] = useState("");
+  const [savingPrice, setSavingPrice] = useState(false);
+
 
   const { data, isLoading } = useProdutos({
     q,
