@@ -15,6 +15,30 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
+  // Enriquece o produto com campos de oferta calculados a partir de preco/preco_lista.
+  // Convenção: quando há oferta, `preco` = preço promocional e `preco_lista` = preço normal (riscado).
+  const enrichPreco = <T extends Record<string, any>>(p: T): T & {
+    preco_atual: number | null;
+    preco_original: number | null;
+    em_oferta: boolean;
+    desconto_percent: number | null;
+    economia: number | null;
+  } => {
+    const preco = typeof p?.preco === "number" ? p.preco : p?.preco != null ? Number(p.preco) : null;
+    const precoLista = typeof p?.preco_lista === "number" ? p.preco_lista : p?.preco_lista != null ? Number(p.preco_lista) : null;
+    const emOferta = preco != null && precoLista != null && precoLista > preco;
+    const desconto = emOferta ? Math.round(((precoLista! - preco!) / precoLista!) * 100) : null;
+    const economia = emOferta ? Number((precoLista! - preco!).toFixed(2)) : null;
+    return {
+      ...p,
+      preco_atual: preco,
+      preco_original: emOferta ? precoLista : null,
+      em_oferta: emOferta,
+      desconto_percent: desconto,
+      economia,
+    };
+  };
+
   const url = new URL(req.url);
   const ean = url.searchParams.get("ean");
   const query = url.searchParams.get("q");
@@ -37,7 +61,7 @@ Deno.serve(async (req) => {
       }
 
       return new Response(
-        JSON.stringify({ produto: data }),
+        JSON.stringify({ produto: enrichPreco(data) }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -56,7 +80,7 @@ Deno.serve(async (req) => {
 
       if (directResults && directResults.length >= 3) {
         return new Response(
-          JSON.stringify({ produtos: directResults, match_type: "direct", total: directResults.length }),
+          JSON.stringify({ produtos: directResults.map(enrichPreco), match_type: "direct", total: directResults.length }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -65,7 +89,7 @@ Deno.serve(async (req) => {
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
       if (!LOVABLE_API_KEY) {
         return new Response(
-          JSON.stringify({ produtos: directResults ?? [], match_type: "direct", total: directResults?.length ?? 0 }),
+          JSON.stringify({ produtos: (directResults ?? []).map(enrichPreco), match_type: "direct", total: directResults?.length ?? 0 }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -116,7 +140,7 @@ Deno.serve(async (req) => {
 
       if (!aiResponse.ok) {
         return new Response(
-          JSON.stringify({ produtos: directResults ?? [], match_type: "direct_fallback", total: directResults?.length ?? 0 }),
+          JSON.stringify({ produtos: (directResults ?? []).map(enrichPreco), match_type: "direct_fallback", total: directResults?.length ?? 0 }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -138,7 +162,7 @@ Deno.serve(async (req) => {
         .filter((n: number) => !isNaN(n) && n >= 0 && n < candidates.length)
         .slice(0, limit);
 
-      const aiResults = indices.map((i: number) => candidates[i]);
+      const aiResults = indices.map((i: number) => candidates[i]).map(enrichPreco);
 
       return new Response(
         JSON.stringify({ produtos: aiResults, match_type: "ai", total: aiResults.length }),
