@@ -162,7 +162,7 @@ Deno.serve(async (req) => {
         .filter((n: number) => !isNaN(n) && n >= 0 && n < candidates.length)
         .slice(0, limit);
 
-      const aiResults = indices.map((i: number) => candidates[i]);
+      const aiResults = indices.map((i: number) => candidates[i]).map(enrichPreco);
 
       return new Response(
         JSON.stringify({ produtos: aiResults, match_type: "ai", total: aiResults.length }),
