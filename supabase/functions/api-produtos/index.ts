@@ -140,7 +140,7 @@ Deno.serve(async (req) => {
 
       if (!aiResponse.ok) {
         return new Response(
-          JSON.stringify({ produtos: directResults ?? [], match_type: "direct_fallback", total: directResults?.length ?? 0 }),
+          JSON.stringify({ produtos: (directResults ?? []).map(enrichPreco), match_type: "direct_fallback", total: directResults?.length ?? 0 }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
