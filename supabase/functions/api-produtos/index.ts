@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
       }
 
       return new Response(
-        JSON.stringify({ produto: data }),
+        JSON.stringify({ produto: enrichPreco(data) }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
