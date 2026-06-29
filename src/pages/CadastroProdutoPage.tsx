@@ -29,34 +29,56 @@ const produtoSchema = z.object({
   preco: z
     .number({ invalid_type_error: "Preço inválido" })
     .nonnegative("Preço deve ser ≥ 0"),
+  preco_oferta: z
+    .number({ invalid_type_error: "Preço em oferta inválido" })
+    .nonnegative("Preço em oferta deve ser ≥ 0")
+    .optional(),
 });
 
 export default function CadastroProdutoPage() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ ean: "", nome: "", descricao: "", preco: "", imagem_url: "" });
+  const [form, setForm] = useState({
+    ean: "",
+    nome: "",
+    descricao: "",
+    preco: "",
+    preco_oferta: "",
+    imagem_url: "",
+  });
   const [saving, setSaving] = useState(false);
+
+  const parseNumber = (v: string) => (v === "" ? undefined : Number(v.replace(",", ".")));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const precoNum = form.preco === "" ? NaN : Number(form.preco.replace(",", "."));
+    const ofertaNum = parseNumber(form.preco_oferta);
     const parsed = produtoSchema.safeParse({
       ean: form.ean,
       nome: form.nome,
       descricao: form.descricao || undefined,
       imagem_url: form.imagem_url || undefined,
-      preco: form.preco === "" ? NaN : Number(form.preco.replace(",", ".")),
+      preco: precoNum,
+      preco_oferta: ofertaNum,
     });
     if (!parsed.success) {
       toast.error(parsed.error.errors[0]?.message ?? "Dados inválidos");
       return;
     }
+    if (parsed.data.preco_oferta !== undefined && parsed.data.preco_oferta >= parsed.data.preco) {
+      toast.error("O preço em oferta deve ser menor que o preço normal");
+      return;
+    }
     setSaving(true);
     try {
       const imagemUrl = parsed.data.imagem_url && parsed.data.imagem_url !== "" ? parsed.data.imagem_url : null;
+      const hasOferta = parsed.data.preco_oferta !== undefined;
       const { error } = await supabase.from("produtos").insert({
         ean: parsed.data.ean,
         nome: parsed.data.nome,
         descricao: parsed.data.descricao ?? null,
-        preco: parsed.data.preco,
+        preco: hasOferta ? parsed.data.preco_oferta! : parsed.data.preco,
+        preco_lista: hasOferta ? parsed.data.preco : null,
         disponivel: true,
         imagem_url_vtex: imagemUrl,
       });
@@ -69,7 +91,7 @@ export default function CadastroProdutoPage() {
         return;
       }
       toast.success("Produto cadastrado com sucesso!");
-      setForm({ ean: "", nome: "", descricao: "", preco: "", imagem_url: "" });
+      setForm({ ean: "", nome: "", descricao: "", preco: "", preco_oferta: "", imagem_url: "" });
       navigate("/catalogo");
     } finally {
       setSaving(false);
@@ -135,18 +157,35 @@ export default function CadastroProdutoPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="preco">Valor (R$) *</Label>
-              <Input
-                id="preco"
-                inputMode="decimal"
-                placeholder="0,00"
-                value={form.preco}
-                onChange={(e) =>
-                  setForm({ ...form, preco: e.target.value.replace(/[^\d.,]/g, "") })
-                }
-                required
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="preco">Preço (R$) *</Label>
+                <Input
+                  id="preco"
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  value={form.preco}
+                  onChange={(e) =>
+                    setForm({ ...form, preco: e.target.value.replace(/[^\d.,]/g, "") })
+                  }
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="preco_oferta">Preço em oferta (R$)</Label>
+                <Input
+                  id="preco_oferta"
+                  inputMode="decimal"
+                  placeholder="opcional"
+                  value={form.preco_oferta}
+                  onChange={(e) =>
+                    setForm({ ...form, preco_oferta: e.target.value.replace(/[^\d.,]/g, "") })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Se preenchido, deve ser menor que o preço normal.
+                </p>
+              </div>
             </div>
 
             <div className="space-y-2">

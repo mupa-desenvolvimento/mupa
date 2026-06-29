@@ -61,6 +61,11 @@ export default function CatalogoPage() {
   const [editingImage, setEditingImage] = useState(false);
   const [imageUrlInput, setImageUrlInput] = useState("");
   const [savingImage, setSavingImage] = useState(false);
+  const [editingPrice, setEditingPrice] = useState(false);
+  const [precoInput, setPrecoInput] = useState("");
+  const [precoOfertaInput, setPrecoOfertaInput] = useState("");
+  const [savingPrice, setSavingPrice] = useState(false);
+
 
   const { data, isLoading } = useProdutos({
     q,
@@ -138,6 +143,66 @@ export default function CatalogoPage() {
       setSavingImage(false);
     }
   };
+
+  const openPriceEditor = () => {
+    if (!selectedProduct) return;
+    const oferta = selectedProduct.preco_lista != null && selectedProduct.preco != null && selectedProduct.preco_lista > selectedProduct.preco;
+    setPrecoInput(
+      oferta
+        ? String(selectedProduct.preco_lista ?? "")
+        : String(selectedProduct.preco ?? "")
+    );
+    setPrecoOfertaInput(oferta ? String(selectedProduct.preco ?? "") : "");
+    setEditingPrice(true);
+  };
+
+  const handleSavePrice = async () => {
+    if (!selectedProduct) return;
+    const parseNum = (v: string) => {
+      const s = v.trim().replace(",", ".");
+      if (s === "") return null;
+      const n = Number(s);
+      return Number.isFinite(n) ? n : NaN;
+    };
+    const preco = parseNum(precoInput);
+    const oferta = parseNum(precoOfertaInput);
+    if (preco === null || Number.isNaN(preco) || preco < 0) {
+      toast.error("Informe um preço válido");
+      return;
+    }
+    if (oferta !== null && (Number.isNaN(oferta) || oferta < 0)) {
+      toast.error("Preço em oferta inválido");
+      return;
+    }
+    if (oferta !== null && oferta >= preco) {
+      toast.error("O preço em oferta deve ser menor que o preço normal");
+      return;
+    }
+    const hasOferta = oferta !== null;
+    const update = {
+      preco: hasOferta ? oferta : preco,
+      preco_lista: hasOferta ? preco : null,
+    };
+    setSavingPrice(true);
+    try {
+      const { error } = await supabase
+        .from("produtos")
+        .update(update)
+        .eq("id", selectedProduct.id);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      setSelectedProduct({ ...selectedProduct, ...update });
+      await queryClient.invalidateQueries({ queryKey: ["produtos"] });
+      toast.success("Preço atualizado");
+      setEditingPrice(false);
+    } finally {
+      setSavingPrice(false);
+    }
+  };
+
+
 
 
   return (
@@ -446,18 +511,77 @@ export default function CatalogoPage() {
                     <span className="text-muted-foreground">Categoria</span>
                     <p className="font-medium">{selectedProduct.categoria ?? "—"}</p>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground">Preço</span>
-                    <p className="font-bold text-primary">
-                      {selectedProduct.preco != null ? `R$ ${selectedProduct.preco.toFixed(2)}` : "—"}
-                    </p>
+                  <div className="col-span-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Preços</span>
+                      {!editingPrice && (
+                        <button
+                          type="button"
+                          onClick={openPriceEditor}
+                          className="h-7 w-7 rounded-full border bg-background flex items-center justify-center hover:bg-muted"
+                          aria-label="Editar preço"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    {editingPrice ? (
+                      <div className="mt-2 space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs text-muted-foreground">Preço (R$)</label>
+                            <Input
+                              inputMode="decimal"
+                              placeholder="0,00"
+                              value={precoInput}
+                              onChange={(e) => setPrecoInput(e.target.value.replace(/[^\d.,]/g, ""))}
+                              autoFocus
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Em oferta (R$)</label>
+                            <Input
+                              inputMode="decimal"
+                              placeholder="opcional"
+                              value={precoOfertaInput}
+                              onChange={(e) => setPrecoOfertaInput(e.target.value.replace(/[^\d.,]/g, ""))}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button type="button" size="sm" onClick={handleSavePrice} disabled={savingPrice} className="flex-1">
+                            {savingPrice ? "A guardar..." : "Guardar"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setEditingPrice(false)}
+                            disabled={savingPrice}
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-1 flex items-baseline gap-3 flex-wrap">
+                        <p className="font-bold text-primary text-lg">
+                          {selectedProduct.preco != null ? `R$ ${selectedProduct.preco.toFixed(2)}` : "—"}
+                        </p>
+                        {selectedProduct.preco_lista != null && selectedProduct.preco != null && selectedProduct.preco_lista > selectedProduct.preco && (
+                          <>
+                            <p className="text-sm text-muted-foreground line-through">
+                              R$ {selectedProduct.preco_lista.toFixed(2)}
+                            </p>
+                            <Badge className="badge-success">
+                              -{Math.round(((selectedProduct.preco_lista - selectedProduct.preco) / selectedProduct.preco_lista) * 100)}%
+                            </Badge>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <span className="text-muted-foreground">Preço Lista</span>
-                    <p className="font-medium">
-                      {selectedProduct.preco_lista != null ? `R$ ${selectedProduct.preco_lista.toFixed(2)}` : "—"}
-                    </p>
-                  </div>
+
                   <div>
                     <span className="text-muted-foreground">Unidade</span>
                     <p className="font-medium">{selectedProduct.unidade_medida} × {selectedProduct.multiplicador}</p>
