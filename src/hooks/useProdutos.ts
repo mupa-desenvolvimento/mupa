@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 interface ProdutosFilter {
@@ -20,10 +20,17 @@ export function useProdutos(filters: ProdutosFilter) {
   return useQuery({
     queryKey: ["produtos", filters],
     queryFn: async () => {
-      let query = supabase.from("produtos").select("*", { count: "exact" });
+      // `count: "estimated"` usa estatísticas do Postgres em vez de um COUNT(*)
+      // completo — muito mais rápido em tabelas grandes.
+      let query = supabase
+        .from("produtos")
+        .select("*", { count: "estimated" });
+
 
       if (filters.q) {
-        query = query.or(`nome.ilike.%${filters.q}%,ean.ilike.%${filters.q}%,marca.ilike.%${filters.q}%`);
+        query = query.or(
+          `nome.ilike.%${filters.q}%,ean.ilike.%${filters.q}%,marca.ilike.%${filters.q}%`
+        );
       }
       if (filters.marca) {
         query = query.ilike("marca", `%${filters.marca}%`);
@@ -66,6 +73,12 @@ export function useProdutos(filters: ProdutosFilter) {
         totalPages: Math.ceil((count ?? 0) / per_page),
       };
     },
+    // Mantém a página anterior visível durante a próxima busca/paginação —
+    // remove o flash de "Carregando..." e a sensação de lentidão.
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -83,5 +96,6 @@ export function useProdutoByEan(ean: string | null) {
       return data;
     },
     enabled: !!ean,
+    staleTime: 60_000,
   });
 }
