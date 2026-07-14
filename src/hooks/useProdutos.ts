@@ -14,11 +14,6 @@ interface ProdutosFilter {
   per_page?: number;
 }
 
-// Colunas mínimas usadas pelas grades/listas. Reduz drasticamente o payload
-// comparado a `select("*")` em tabelas com muitas colunas.
-const LIST_COLUMNS =
-  "id, ean, nome, nome_curto, marca, categoria, categoria_id, preco, preco_lista, disponivel, imagem_url_vtex, imagem_url_azure, imagem_baixada, favorito_atacado";
-
 export function useProdutos(filters: ProdutosFilter) {
   const { page = 1, per_page = 20 } = filters;
 
@@ -26,11 +21,11 @@ export function useProdutos(filters: ProdutosFilter) {
     queryKey: ["produtos", filters],
     queryFn: async () => {
       // `count: "estimated"` usa estatísticas do Postgres em vez de um COUNT(*)
-      // completo — muito mais rápido em tabelas grandes. A paginação continua
-      // funcionando; só o total exibido pode variar levemente.
+      // completo — muito mais rápido em tabelas grandes.
       let query = supabase
         .from("produtos")
-        .select(LIST_COLUMNS, { count: "estimated" });
+        .select("*", { count: "estimated" });
+
 
       if (filters.q) {
         query = query.or(
