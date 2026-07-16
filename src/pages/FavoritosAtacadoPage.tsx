@@ -16,7 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Search, ChevronLeft, ChevronRight, Package, Star } from "lucide-react";
-import type { Tables } from "@/integrations/supabase/types";
+import type { Produto } from "@/types/produto";
 import { motion } from "framer-motion";
 
 export default function FavoritosAtacadoPage() {
