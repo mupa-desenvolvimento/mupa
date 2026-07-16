@@ -53,7 +53,7 @@ export default function CatalogoPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [tab, setTab] = useState<"todos" | "favoritos">("todos");
-  const [selectedProduct, setSelectedProduct] = useState<Tables<"produtos"> | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<Produto | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [swipeDir, setSwipeDir] = useState<"left" | "right" | null>(null);
   const { favoritos, isFavorito, toggleFavorito } = useFavoritos();
@@ -102,11 +102,11 @@ export default function CatalogoPage() {
     }
   };
 
-  const getImageUrl = (p: Tables<"produtos">) => {
+  const getImageUrl = (p: Produto) => {
     return p.imagem_url_vtex || p.imagem_url_azure || null;
   };
 
-  const getDiscount = (p: Tables<"produtos">) => {
+  const getDiscount = (p: Produto) => {
     if (p.preco && p.preco_lista && p.preco_lista > p.preco) {
       return Math.round(((p.preco_lista - p.preco) / p.preco_lista) * 100);
     }

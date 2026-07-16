@@ -23,7 +23,7 @@ export default function FavoritosAtacadoPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [categoria, setCategoria] = useState<string>("todas");
-  const [selectedProduct, setSelectedProduct] = useState<Tables<"produtos"> | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<Produto | null>(null);
 
   const { data, isLoading } = useProdutos({
     q,
@@ -45,7 +45,7 @@ export default function FavoritosAtacadoPage() {
     return Array.from(set).sort();
   }, [data]);
 
-  const getImageUrl = (p: Tables<"produtos">) =>
+  const getImageUrl = (p: Produto) =>
     p.imagem_url_vtex || p.imagem_url_azure || null;
 
   return (
