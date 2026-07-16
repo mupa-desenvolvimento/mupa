@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Search, ChevronLeft, ChevronRight, Package, Tag, Heart, List, ImagePlus, Pencil } from "lucide-react";
-import type { Tables } from "@/integrations/supabase/types";
+import type { Produto } from "@/types/produto";
 import { motion, AnimatePresence } from "framer-motion";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFavoritos } from "@/hooks/useFavoritos";
