@@ -151,12 +151,15 @@ export default function LoginPage() {
                 />
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Aguarde..." : isSignUp ? (
+                {loading ? (attemptInfo ?? "Aguarde...") : isSignUp ? (
                   <><UserPlus className="mr-2 h-4 w-4" /> Criar conta</>
                 ) : (
                   <><LogIn className="mr-2 h-4 w-4" /> Entrar</>
                 )}
               </Button>
+              {attemptInfo && (
+                <p className="text-center text-xs text-muted-foreground">{attemptInfo}</p>
+              )}
             </form>
             <div className="mt-4 text-center">
               <button
