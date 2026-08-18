@@ -11,40 +11,78 @@ import { suppressNativeKeyboardProps } from "@/components/virtual-keyboard/suppr
 
 type FocusField = "email" | "password";
 
+const MAX_ATTEMPTS = 4;
+const BASE_DELAY_MS = 800;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const isNetworkError = (message: string) =>
+  /failed to fetch|network|timeout|load failed|fetch error|504|502|503/i.test(message);
+
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [attemptInfo, setAttemptInfo] = useState<string | null>(null);
   const [focusedField, setFocusedField] = useState<FocusField>("email");
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setAttemptInfo(null);
 
-    try {
-      if (isSignUp) {
-        const { error } = await supabase.auth.signUp({ email, password });
-        if (error) throw error;
-        toast({ title: "Conta criada com sucesso!", description: "Você já está logado." });
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+    let lastMessage = "Erro desconhecido";
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        if (attempt > 1) {
+          setAttemptInfo(`Reconectando… tentativa ${attempt} de ${MAX_ATTEMPTS}`);
+        }
+
+        if (isSignUp) {
+          const { error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: { emailRedirectTo: window.location.origin },
+          });
+          if (error) throw error;
+          toast({ title: "Conta criada!", description: "Verifique seu e-mail para confirmar o cadastro." });
+        } else {
+          const { error } = await supabase.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+        }
+
+        setAttemptInfo(null);
+        setLoading(false);
+        return;
+      } catch (error: unknown) {
+        lastMessage = error instanceof Error ? error.message : String(error);
+
+        const retriable = isNetworkError(lastMessage);
+        if (!retriable || attempt === MAX_ATTEMPTS) break;
+
+        // backoff exponencial com jitter
+        const delay = BASE_DELAY_MS * 2 ** (attempt - 1) + Math.random() * 300;
+        await sleep(delay);
       }
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({
-        title: "Erro",
-        description: message === "Invalid login credentials"
-          ? "E-mail ou senha inválidos"
-          : message,
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
     }
+
+    setAttemptInfo(null);
+    setLoading(false);
+    toast({
+      title: "Erro",
+      description:
+        lastMessage === "Invalid login credentials"
+          ? "E-mail ou senha inválidos"
+          : isNetworkError(lastMessage)
+            ? "Não foi possível conectar ao servidor. Ele pode estar iniciando — tente novamente em instantes."
+            : lastMessage,
+      variant: "destructive",
+    });
   };
+
 
   const append = useCallback(
     (char: string) => {
@@ -113,12 +151,15 @@ export default function LoginPage() {
                 />
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Aguarde..." : isSignUp ? (
+                {loading ? (attemptInfo ?? "Aguarde...") : isSignUp ? (
                   <><UserPlus className="mr-2 h-4 w-4" /> Criar conta</>
                 ) : (
                   <><LogIn className="mr-2 h-4 w-4" /> Entrar</>
                 )}
               </Button>
+              {attemptInfo && (
+                <p className="text-center text-xs text-muted-foreground">{attemptInfo}</p>
+              )}
             </form>
             <div className="mt-4 text-center">
               <button
