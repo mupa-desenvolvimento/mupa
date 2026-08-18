@@ -21,6 +21,13 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  if (!CATALOG_API || !/^https?:\/\//i.test(CATALOG_API)) {
+    return new Response(
+      JSON.stringify({ error: "CATALOG_API_URL não configurada (precisa ser uma URL http(s) completa)." }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
