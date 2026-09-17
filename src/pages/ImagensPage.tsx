@@ -99,7 +99,7 @@ export default function ImagensPage() {
       ) : data && data.items.length > 0 ? (
         <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
           {data.items.map((p) => {
-            const img = p.imagem_url_azure || p.imagem_url_vtex;
+            const img = p.imagem_url_vtex || p.imagem_url_azure;
             return (
               <motion.div
                 key={p.id}
