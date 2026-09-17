@@ -10,6 +10,17 @@ const BATCH_SIZE = 50;
 const DELAY_MS = 800;
 const MAX_EXECUTION_MS = 120_000; // 2 min safety margin
 
+// Imagens do repositório Azure exigem um token (SAS) que expira periodicamente.
+// O token fica em segredo (AZURE_IMAGE_SAS) para poder ser trocado sem alterar código.
+const AZURE_IMAGE_BASE = (Deno.env.get("AZURE_IMAGE_BASE_URL") ??
+  "https://sabancoimagenspng.blob.core.windows.net/png1000x1000").replace(/\/+$/, "");
+const AZURE_IMAGE_SAS = (Deno.env.get("AZURE_IMAGE_SAS") ?? "").replace(/^\?+/, "").trim();
+
+function azureImageUrl(ean: string): string | null {
+  if (!AZURE_IMAGE_SAS) return null;
+  return `${AZURE_IMAGE_BASE}/${ean}_1.png?${AZURE_IMAGE_SAS}`;
+}
+
 type SyncLogRow = {
   id: string;
   current_offset?: number | null;
@@ -163,7 +174,7 @@ Deno.serve(async (req) => {
             preco_lista: precoLista,
             disponivel,
             imagem_url_vtex: imgUrl,
-            imagem_url_azure: `https://sabancoimagenspng.blob.core.windows.net/png1000x1000/${ean}_1.png?sp=rl&st=2025-09-16T14:13:08Z&se=2026-03-16T22:28:08Z&spr=https&sv=2024-11-04&sr=c&sig=55doi7f%2F1M89ZfIPim7tR98%2BHEZJOWr8Ll5ygGkvqMg%3D`,
+            imagem_url_azure: azureImageUrl(String(ean)),
             imagem_baixada: false,
           });
         }
